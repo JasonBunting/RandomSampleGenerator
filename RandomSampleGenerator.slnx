@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="RandomSampleGenerator.App/RandomSampleGenerator.App.csproj" />
+  <Project Path="RandomSampleGenerator.Core.Tests/RandomSampleGenerator.Core.Tests.csproj" />
+  <Project Path="RandomSampleGenerator.Core/RandomSampleGenerator.Core.csproj" />
+</Solution>
