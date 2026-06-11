@@ -10,6 +10,6 @@ A Windows GUI application in C# that creates short WAV samples from a user-selec
 ## Build and Test
 
 ```bash
-dotnet build /home/runner/work/RandomSampleGenerator/RandomSampleGenerator/JasonBunting/RandomSampleGenerator/RandomSampleGenerator.slnx
-dotnet test /home/runner/work/RandomSampleGenerator/RandomSampleGenerator/JasonBunting/RandomSampleGenerator/RandomSampleGenerator.slnx
+dotnet build RandomSampleGenerator.slnx
+dotnet test RandomSampleGenerator.slnx
 ```
