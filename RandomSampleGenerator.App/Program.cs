@@ -54,13 +54,7 @@ static class Program
             }
 
             // Verify target folder is writable
-            var probePath = Path.Combine(dlg.SelectedPath, $".{Guid.NewGuid():N}.tmp");
-            try
-            {
-                File.WriteAllText(probePath, "probe");
-                File.Delete(probePath);
-            }
-            catch
+            if (!FolderValidation.IsFolderWritable(dlg.SelectedPath))
             {
                 MessageBox.Show("The selected target folder is not writable. The application will now exit.",
                     "Setup Required", MessageBoxButtons.OK, MessageBoxIcon.Error);

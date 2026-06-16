@@ -137,14 +137,11 @@ public sealed class SettingsForm : Form
         if (dlg.ShowDialog(this) == DialogResult.OK)
         {
             // Verify writability
-            var probePath = Path.Combine(dlg.SelectedPath, $".{Guid.NewGuid():N}.tmp");
-            try
+            if (FolderValidation.IsFolderWritable(dlg.SelectedPath))
             {
-                File.WriteAllText(probePath, "probe");
-                File.Delete(probePath);
                 _targetFolderBox.Text = dlg.SelectedPath;
             }
-            catch
+            else
             {
                 MessageBox.Show("The selected folder is not writable.", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);

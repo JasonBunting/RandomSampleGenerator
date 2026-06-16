@@ -82,13 +82,6 @@ public sealed class StemRowControl : Panel
             Value = 10,
             DecimalPlaces = 0
         };
-        _chunkLengthInput.ValueChanged += (s, e) =>
-        {
-            // Ensure sample length <= chunk length
-            _sampleLengthInput!.Maximum = _chunkLengthInput.Value;
-            if (_sampleLengthInput.Value > _chunkLengthInput.Value)
-                _sampleLengthInput.Value = _chunkLengthInput.Value;
-        };
 
         _sampleLengthInput = new NumericUpDown
         {
@@ -99,6 +92,14 @@ public sealed class StemRowControl : Panel
             Maximum = 10, // Initially constrained by chunk length default of 10
             Value = 1,
             DecimalPlaces = 0
+        };
+
+        _chunkLengthInput.ValueChanged += (s, e) =>
+        {
+            // Ensure sample length <= chunk length
+            _sampleLengthInput.Maximum = _chunkLengthInput.Value;
+            if (_sampleLengthInput.Value > _chunkLengthInput.Value)
+                _sampleLengthInput.Value = _chunkLengthInput.Value;
         };
 
         _statusLabel = new Label
