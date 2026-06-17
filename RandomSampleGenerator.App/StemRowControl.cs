@@ -26,8 +26,11 @@ public sealed class StemRowControl : Panel
 
     private int _producedCount;
     private int _requestedCount;
+    private string _lastConfirmedModel = string.Empty;
+    private bool _suppressModelChanged;
 
     public event EventHandler? QuantityChanged;
+    public event EventHandler<ModelChangedEventArgs>? ModelChanged;
 
     public string StemType { get; }
 
@@ -73,6 +76,7 @@ public sealed class StemRowControl : Panel
             DropDownStyle = ComboBoxStyle.DropDownList
         };
         PopulateModels();
+        _modelCombo.SelectedIndexChanged += OnModelSelectionChanged;
 
         _quantityInput = new NumericUpDown
         {
@@ -156,6 +160,7 @@ public sealed class StemRowControl : Panel
         _producedCount = 0;
         SetStateFromQuantity();
         UpdateProgressLabel();
+        _lastConfirmedModel = SelectedModel;
     }
 
     private void PopulateModels()
@@ -233,4 +238,50 @@ public sealed class StemRowControl : Panel
         _chunkLengthInput.Enabled = enabled;
         _sampleLengthInput.Enabled = enabled;
     }
+
+    public void RevertModelSelection()
+    {
+        if (string.IsNullOrWhiteSpace(_lastConfirmedModel))
+        {
+            return;
+        }
+
+        _suppressModelChanged = true;
+        try
+        {
+            SelectedModel = _lastConfirmedModel;
+        }
+        finally
+        {
+            _suppressModelChanged = false;
+        }
+    }
+
+    public void ConfirmCurrentModelSelection()
+    {
+        _lastConfirmedModel = SelectedModel;
+    }
+
+    private void OnModelSelectionChanged(object? sender, EventArgs e)
+    {
+        if (_suppressModelChanged)
+        {
+            return;
+        }
+
+        var current = SelectedModel;
+        if (string.Equals(_lastConfirmedModel, current, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        ModelChanged?.Invoke(this, new ModelChangedEventArgs(_lastConfirmedModel, current));
+    }
+}
+
+public sealed class ModelChangedEventArgs(string previousModel, string currentModel) : EventArgs
+{
+    public string PreviousModel { get; } = previousModel;
+
+    public string CurrentModel { get; } = currentModel;
 }

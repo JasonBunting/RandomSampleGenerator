@@ -18,5 +18,9 @@ public sealed class AppConfiguration
 
     public int MaxDistinctStemTypesPerSongPerRun { get; set; } = 3;
 
+    public int WarningRequestedSamplesPerDiscoveredSourceMultiplier { get; set; } = 8;
+
+    public int HardRequestedSamplesPerDiscoveredSourceMultiplier { get; set; } = 20;
+
     public Dictionary<string, string> ModelByStemType { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

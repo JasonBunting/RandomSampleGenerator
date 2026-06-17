@@ -66,6 +66,48 @@ public sealed class ValidationService
         return errors;
     }
 
+    public PreflightValidationResult ValidatePreflight(RunConfiguration runConfiguration, int discoveredSourceFileCount)
+    {
+        var errors = ValidateBeforeRun(runConfiguration).ToList();
+        var warnings = new List<string>();
+
+        if (discoveredSourceFileCount <= 0)
+        {
+            errors.Add("No supported source files found (.wav, .mp3).");
+            return new PreflightValidationResult { Errors = errors, Warnings = warnings };
+        }
+
+        var rows = runConfiguration.StemRows.Where(row => row.Quantity > 0).ToList();
+        var totalRequestedSamples = rows.Sum(row => row.Quantity);
+        var maxCandidateChunkLength = rows.Count > 0 ? rows.Max(row => row.CandidateChunkLengthSeconds) : 0;
+
+        var warningMultiplier = Math.Max(1, runConfiguration.AppConfiguration.WarningRequestedSamplesPerDiscoveredSourceMultiplier);
+        var hardMultiplier = Math.Max(warningMultiplier, runConfiguration.AppConfiguration.HardRequestedSamplesPerDiscoveredSourceMultiplier);
+
+        var warningCeiling = discoveredSourceFileCount * warningMultiplier;
+        var hardCeiling = discoveredSourceFileCount * hardMultiplier;
+
+        if (totalRequestedSamples > hardCeiling)
+        {
+            errors.Add($"Requested sample count ({totalRequestedSamples}) exceeds hard sanity ceiling ({hardCeiling}) for discovered source pool size ({discoveredSourceFileCount}).");
+        }
+        else if (totalRequestedSamples > warningCeiling)
+        {
+            warnings.Add($"Requested sample count ({totalRequestedSamples}) may be unrealistic for discovered source pool size ({discoveredSourceFileCount}).");
+        }
+
+        if (maxCandidateChunkLength >= 25 && discoveredSourceFileCount < 3)
+        {
+            warnings.Add("Long candidate chunk lengths with a very small source pool may reduce successful outputs.");
+        }
+
+        return new PreflightValidationResult
+        {
+            Errors = errors,
+            Warnings = warnings
+        };
+    }
+
     private static bool CanWriteToFolder(string folderPath)
     {
         if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))

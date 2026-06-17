@@ -1,6 +1,7 @@
 using RandomSampleGenerator.Core.Constants;
 using RandomSampleGenerator.Core.Models;
 using RandomSampleGenerator.Core.Services;
+using System.Diagnostics;
 
 namespace RandomSampleGenerator.App;
 
@@ -55,6 +56,7 @@ public partial class MainForm : Form
             var stemType = StemTypes.Ordered[i];
             var row = new StemRowControl(stemType) { Top = 40 + i * 38, Left = 10 };
             row.QuantityChanged += OnQuantityChanged;
+            row.ModelChanged += OnModelChanged;
             Controls.Add(row);
             _stemRows[i] = row;
         }
@@ -113,6 +115,7 @@ public partial class MainForm : Form
             row.SetVisualState(row.Quantity == 0
                 ? StemRowControl.RowVisualState.Skipped
                 : StemRowControl.RowVisualState.Idle);
+            row.ConfirmCurrentModelSelection();
         }
 
         UpdateRunButtonState();
@@ -133,30 +136,22 @@ public partial class MainForm : Form
         SaveConfigFromUI();
 
         var runConfiguration = BuildRunConfigurationFromUI();
-        var validationErrors = _validationService.ValidateBeforeRun(runConfiguration);
-        if (validationErrors.Count > 0)
+        var preflight = ValidatePreflight(runConfiguration);
+        if (!preflight.IsValid)
         {
-            MessageBox.Show(string.Join(Environment.NewLine, validationErrors),
+            MessageBox.Show(string.Join(Environment.NewLine, preflight.Errors),
                 "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
 
-        try
+        if (preflight.Warnings.Count > 0)
         {
-            _currentSourcePool = _sourcePoolScanner.Scan(_config.SourceFolderPath);
-        }
-        catch (Exception ex)
-        {
-            MessageBox.Show($"Configured source folder is inaccessible: {ex.Message}",
-                "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return;
-        }
-
-        if (_currentSourcePool.Count == 0)
-        {
-            MessageBox.Show("No supported source files found (.wav, .mp3).",
-                "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return;
+            var warningMessage = string.Join(Environment.NewLine, preflight.Warnings) + Environment.NewLine + Environment.NewLine + "Continue anyway?";
+            var choice = MessageBox.Show(warningMessage, "Preflight Warning", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (choice != DialogResult.Yes)
+            {
+                return;
+            }
         }
 
         EnterRunMode();
@@ -246,7 +241,11 @@ public partial class MainForm : Form
                 update => BeginInvoke(() => ApplyRowProgressUpdate(update))));
 
             ApplyFinalRowStates(result.RowResults);
-            MessageBox.Show($"Run {result.Status}.", "Run Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            ShowRunCompletionMessage(result);
+            if (result.Status == RunStatus.Completed && _config.AutoOpenOutputFolder)
+            {
+                TryOpenOutputFolder(result.RunFolderPath);
+            }
         }
         catch (Exception ex)
         {
@@ -339,6 +338,100 @@ public partial class MainForm : Form
         {
             _config = settingsForm.UpdatedConfig;
             _configService.Save(_config);
+        }
+    }
+
+    private void OnModelChanged(object? sender, ModelChangedEventArgs e)
+    {
+        if (_isRunInProgress)
+        {
+            return;
+        }
+
+        if (sender is not StemRowControl row)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(e.PreviousModel))
+        {
+            row.ConfirmCurrentModelSelection();
+            return;
+        }
+
+        var confirm = MessageBox.Show(
+            $"Change model for '{row.StemType}' from '{e.PreviousModel}' to '{e.CurrentModel}'?",
+            "Confirm Model Change",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        if (confirm == DialogResult.Yes)
+        {
+            row.ConfirmCurrentModelSelection();
+            _config.ModelByStemType[row.StemType] = row.SelectedModel;
+            _configService.Save(_config);
+        }
+        else
+        {
+            row.RevertModelSelection();
+        }
+    }
+
+    private PreflightValidationResult ValidatePreflight(RunConfiguration runConfiguration)
+    {
+        try
+        {
+            _currentSourcePool = _sourcePoolScanner.Scan(_config.SourceFolderPath);
+        }
+        catch (Exception ex)
+        {
+            return new PreflightValidationResult
+            {
+                Errors = [$"Configured source folder is inaccessible: {ex.Message}"],
+                Warnings = []
+            };
+        }
+
+        return _validationService.ValidatePreflight(runConfiguration, _currentSourcePool.Count);
+    }
+
+    private void ShowRunCompletionMessage(RunResult result)
+    {
+        var text = result.Status switch
+        {
+            RunStatus.Completed => $"Run completed. Output folder:{Environment.NewLine}{result.RunFolderPath}",
+            RunStatus.Cancelled => $"Run cancelled. Partial outputs were kept in:{Environment.NewLine}{result.RunFolderPath}",
+            _ => $"Run failed. Available outputs were kept in:{Environment.NewLine}{result.RunFolderPath}"
+        };
+
+        var icon = result.Status switch
+        {
+            RunStatus.Completed => MessageBoxIcon.Information,
+            RunStatus.Cancelled => MessageBoxIcon.Warning,
+            _ => MessageBoxIcon.Error
+        };
+
+        MessageBox.Show(text, "Run Result", MessageBoxButtons.OK, icon);
+    }
+
+    private static void TryOpenOutputFolder(string folderPath)
+    {
+        try
+        {
+            if (!Directory.Exists(folderPath))
+            {
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = folderPath,
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            // Keep post-run UX best-effort only.
         }
     }
 
