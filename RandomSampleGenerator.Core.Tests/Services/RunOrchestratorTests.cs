@@ -64,7 +64,8 @@ public sealed class RunOrchestratorTests
                 new CandidateChunkService(),
                 new StemSeparationService(new FakeProcessRunner(simulateSuccess: true)),
                 new SampleExportService(),
-                new ExportFileNameBuilder());
+                new ExportFileNameBuilder(),
+                new ManifestBuilder());
 
             var result = sut.Run(runConfiguration, [songA], progressCallback: progress.Add);
 
@@ -78,6 +79,12 @@ public sealed class RunOrchestratorTests
             Assert.NotEqual(0, result.ProcessingSeed);
             Assert.NotEmpty(result.ExportedSamples);
             Assert.All(result.ExportedSamples, sample => Assert.True(File.Exists(sample.ExportedFullPath)));
+
+            var runFolder = result.RunFolderPath;
+            var logPath = Path.Combine(targetRoot, "logs", $"{result.RunName}.log");
+            var manifestPath = Path.Combine(runFolder, RunFolderService.ManifestFileName);
+            Assert.True(File.Exists(logPath));
+            Assert.True(File.Exists(manifestPath));
 
             Assert.Contains(progress, update => update.StemType == "bass" && update.FinalStatus == RowStatus.Skipped);
             Assert.Contains(progress, update => update.StemType == "drums" && update.FinalStatus.HasValue);
@@ -139,7 +146,8 @@ public sealed class RunOrchestratorTests
                 new CandidateChunkService(),
                 new StemSeparationService(new FakeProcessRunner(simulateSuccess: true)),
                 new SampleExportService(),
-                new ExportFileNameBuilder());
+                new ExportFileNameBuilder(),
+                new ManifestBuilder());
             using var cts = new CancellationTokenSource();
 
             var result = sut.Run(runConfiguration, [songA], cts.Token, update =>
@@ -152,6 +160,7 @@ public sealed class RunOrchestratorTests
 
             Assert.Equal(RunStatus.Cancelled, result.Status);
             Assert.Contains(result.RowResults, row => row.StemType == "drums" && row.Status == RowStatus.Cancelled);
+            Assert.True(File.Exists(Path.Combine(result.RunFolderPath, RunFolderService.ManifestFileName)));
         }
         finally
         {

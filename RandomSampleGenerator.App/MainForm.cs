@@ -247,7 +247,8 @@ public partial class MainForm : Form
             new CandidateChunkService(),
             new StemSeparationService(),
             new SampleExportService(),
-            new ExportFileNameBuilder());
+            new ExportFileNameBuilder(),
+            new ManifestBuilder());
         _runCancellationTokenSource = new CancellationTokenSource();
 
         try

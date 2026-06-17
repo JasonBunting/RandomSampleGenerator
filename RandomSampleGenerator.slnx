@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="sample_harvester_v_1_tech_spec.md" />
+  </Folder>
   <Project Path="RandomSampleGenerator.App/RandomSampleGenerator.App.csproj" />
   <Project Path="RandomSampleGenerator.Core.Tests/RandomSampleGenerator.Core.Tests.csproj" />
   <Project Path="RandomSampleGenerator.Core/RandomSampleGenerator.Core.csproj" />

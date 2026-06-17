@@ -10,6 +10,7 @@ public sealed class RunOrchestrator
 	 private readonly StemSeparationService _stemSeparationService;
 	 private readonly SampleExportService _sampleExportService;
 	 private readonly ExportFileNameBuilder _exportFileNameBuilder;
+	 private readonly ManifestBuilder _manifestBuilder;
 
 	 public RunOrchestrator(
 		  RunFolderService runFolderService,
@@ -17,7 +18,8 @@ public sealed class RunOrchestrator
 		  CandidateChunkService candidateChunkService,
 		  StemSeparationService stemSeparationService,
 		  SampleExportService sampleExportService,
-		  ExportFileNameBuilder exportFileNameBuilder)
+		  ExportFileNameBuilder exportFileNameBuilder,
+		  ManifestBuilder manifestBuilder)
 	 {
 		  _runFolderService = runFolderService;
 		  _validationService = validationService;
@@ -25,6 +27,7 @@ public sealed class RunOrchestrator
 		  _stemSeparationService = stemSeparationService;
 		  _sampleExportService = sampleExportService;
 		  _exportFileNameBuilder = exportFileNameBuilder;
+		  _manifestBuilder = manifestBuilder;
 	 }
 
 	 public RunResult Run(
@@ -51,6 +54,21 @@ public sealed class RunOrchestrator
 				ProcessingSeed = Random.Shared.Next()
 		  };
 
+		  var logger = new LoggingService(runContext.LogFilePath, runConfiguration.AppConfiguration.LoggingEnabled);
+		  var artifactWriteErrors = new List<Exception>();
+
+		  void SafeLog(string message)
+		  {
+				try
+				{
+					 logger.Info(message);
+				}
+				catch (Exception ex)
+				{
+					 artifactWriteErrors.Add(new InvalidOperationException($"Failed to write run log entry: {message}", ex));
+				}
+		  }
+
 		  var randomizationService = new RandomizationService(runContext.SongSelectionSeed, runContext.ProcessingSeed);
 		  var runTempRoot = _candidateChunkService.EnsureRunTempRoot(runContext.RunFolderPath);
 		  var replayMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
@@ -58,9 +76,13 @@ public sealed class RunOrchestrator
 		  var rowResults = new List<RowResult>();
 		  var exportRecords = new List<ExportedSampleRecord>();
 		  var usedStemTypesBySong = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+		  Exception? runException = null;
+		  SafeLog($"Run started. Name='{runContext.RunName}', RunFolder='{runContext.RunFolderPath}', SourceCount={sourcePool.Count}, SongSelectionSeed={runContext.SongSelectionSeed}, ProcessingSeed={runContext.ProcessingSeed}");
 
-		  foreach (var row in runConfiguration.StemRows.OrderBy(row => Array.IndexOf(Constants.StemTypes.Ordered, row.StemType)))
+		  try
 		  {
+				foreach (var row in runConfiguration.StemRows.OrderBy(row => Array.IndexOf(Constants.StemTypes.Ordered, row.StemType)))
+				{
 				if (row.Quantity == 0)
 				{
 					 var skipped = new RowResult
@@ -76,6 +98,7 @@ public sealed class RunOrchestrator
 
 					 rowResults.Add(skipped);
 					 progressCallback?.Invoke(new RowProgressUpdate(skipped.StemType, skipped.RequestedCount, skipped.ProducedCount, skipped.Status));
+					 SafeLog($"Row '{row.StemType}' skipped because requested quantity is 0.");
 					 continue;
 				}
 
@@ -94,9 +117,11 @@ public sealed class RunOrchestrator
 
 					 rowResults.Add(cancelled);
 					 progressCallback?.Invoke(new RowProgressUpdate(cancelled.StemType, cancelled.RequestedCount, cancelled.ProducedCount, cancelled.Status));
+					 SafeLog($"Row '{row.StemType}' cancelled before processing started.");
 					 break;
 				}
 
+				SafeLog($"Row '{row.StemType}' started. Requested={row.Quantity}, Model='{row.Model}', CandidateChunkLengthSeconds={row.CandidateChunkLengthSeconds}, FinalSampleLengthSeconds={row.FinalSampleLengthSeconds}");
 				progressCallback?.Invoke(new RowProgressUpdate(row.StemType, row.Quantity, 0, null));
 
 				var produced = 0;
@@ -157,6 +182,7 @@ public sealed class RunOrchestrator
 
 					 if (separationResult.IsCancelled)
 					 {
+						 SafeLog($"Row '{row.StemType}' cancelled during stem separation on attempt {attempts}.");
 						  break;
 					 }
 
@@ -208,6 +234,7 @@ public sealed class RunOrchestrator
 
 						  produced++;
 						  progressCallback?.Invoke(new RowProgressUpdate(row.StemType, row.Quantity, produced, null));
+						 SafeLog($"Row '{row.StemType}' produced sample {produced}/{row.Quantity}: '{exportFileName}' from source '{song}'.");
 					 }
 				}
 
@@ -224,6 +251,13 @@ public sealed class RunOrchestrator
 
 				rowResults.Add(result);
 				progressCallback?.Invoke(new RowProgressUpdate(result.StemType, result.RequestedCount, result.ProducedCount, result.Status));
+				SafeLog($"Row '{result.StemType}' ended with status {result.Status}. Produced={result.ProducedCount}/{result.RequestedCount}.");
+				}
+		  }
+		  catch (Exception ex)
+		  {
+				runException = ex;
+				SafeLog($"Run failed with unhandled exception: {ex}");
 		  }
 
 		  var runResult = new RunResult
@@ -243,6 +277,28 @@ public sealed class RunOrchestrator
 				RowResults = rowResults,
 			ExportedSamples = exportRecords
 		  };
+
+		  SafeLog($"Run ended with status {runResult.Status}. ExportedSamples={runResult.ExportedSamples.Count}.");
+
+		  try
+		  {
+				var manifestPath = _manifestBuilder.WriteManifest(runContext.RunFolderPath, runResult);
+				SafeLog($"Manifest written: '{manifestPath}'.");
+		  }
+		  catch (Exception ex)
+		  {
+				artifactWriteErrors.Add(new InvalidOperationException("Failed to write run manifest.", ex));
+		  }
+
+		  if (artifactWriteErrors.Count > 0)
+		  {
+				throw new AggregateException("Run completed but artifact writing encountered errors.", artifactWriteErrors);
+		  }
+
+		  if (runException is not null)
+		  {
+				throw new InvalidOperationException("Run failed during processing. Manifest was still attempted.", runException);
+		  }
 
 		  return runResult;
 	 }
