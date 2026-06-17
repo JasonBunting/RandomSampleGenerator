@@ -14,6 +14,7 @@ public sealed class StemSeparationServiceTests
 
 		  Assert.False(result.IsSuccess);
 		  Assert.Contains("Unsupported Demucs model", result.FailureReason ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+			Assert.DoesNotContain("Attempt 1/3", result.FailureReason ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 	 }
 
 	 [Fact]

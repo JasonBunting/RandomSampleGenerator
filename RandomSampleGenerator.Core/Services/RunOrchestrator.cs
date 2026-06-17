@@ -133,8 +133,7 @@ public sealed class RunOrchestrator
 						  row.StemType,
 						  attempts,
 						  candidateChunkStartSeconds,
-						  row.CandidateChunkLengthSeconds,
-						  runConfiguration.AppConfiguration.ExportSampleRate);
+						  row.CandidateChunkLengthSeconds);
 
 					 if (!candidateChunkPath.IsSuccess || string.IsNullOrWhiteSpace(candidateChunkPath.CandidateChunkPath))
 					 {

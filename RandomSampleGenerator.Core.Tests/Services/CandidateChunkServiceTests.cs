@@ -23,8 +23,7 @@ public sealed class CandidateChunkServiceTests
 					 "drums",
 					 1,
 					 candidateChunkStartSeconds: 0,
-					 candidateChunkLengthSeconds: 10,
-					 sampleRate: 44100);
+							candidateChunkLengthSeconds: 10);
 
 				Assert.False(result.IsSuccess);
 				Assert.Contains("shorter than candidate chunk length", result.FailureReason ?? string.Empty, StringComparison.OrdinalIgnoreCase);
@@ -54,8 +53,7 @@ public sealed class CandidateChunkServiceTests
 					 "drums",
 					 1,
 					 candidateChunkStartSeconds: 1.5,
-					 candidateChunkLengthSeconds: 5,
-					 sampleRate: 44100);
+							candidateChunkLengthSeconds: 5);
 
 				Assert.True(result.IsSuccess);
 				Assert.NotNull(result.CandidateChunkPath);
@@ -68,6 +66,9 @@ public sealed class CandidateChunkServiceTests
 
 				Assert.Equal("RIFF", riff);
 				Assert.Equal(1, audioFormat);
+
+				 var dataSize = ReadDataChunkSize(result.CandidateChunkPath);
+					 Assert.Equal(44100 * 5 * 2, dataSize);
 		  }
 		  finally
 		  {
@@ -75,11 +76,47 @@ public sealed class CandidateChunkServiceTests
 		  }
 	 }
 
-	 private static void CreateSineWave(string outputPath, int durationSeconds)
+	 [Fact]
+	 public void PrepareCandidateChunkWav_PreservesSourceRateAndChannels()
 	 {
-		  const int sampleRate = 44100;
+		  var root = Path.Combine(Path.GetTempPath(), $"rsg-chunk-{Guid.NewGuid():N}");
+		  Directory.CreateDirectory(root);
+		  var source = Path.Combine(root, "stereo-48k.wav");
+		  CreateSineWave(source, durationSeconds: 12, sampleRate: 48000, channels: 2);
+
+		  try
+		  {
+				var sut = new CandidateChunkService();
+				var runTemp = sut.EnsureRunTempRoot(root);
+
+				var result = sut.PrepareCandidateChunkWav(
+					 runTemp,
+					 source,
+					 "drums",
+					 1,
+					 candidateChunkStartSeconds: 1,
+					 candidateChunkLengthSeconds: 3);
+
+				Assert.True(result.IsSuccess);
+				Assert.NotNull(result.CandidateChunkPath);
+
+				using var reader = new BinaryReader(File.OpenRead(result.CandidateChunkPath!));
+				reader.BaseStream.Position = 22;
+				var channels = reader.ReadInt16();
+				var sampleRate = reader.ReadInt32();
+
+				Assert.Equal(2, channels);
+				Assert.Equal(48000, sampleRate);
+		  }
+		  finally
+		  {
+				Directory.Delete(root, true);
+		  }
+	 }
+
+	  private static void CreateSineWave(string outputPath, int durationSeconds, int sampleRate = 44100, short channels = 1)
+	 {
 		  const short bitsPerSample = 16;
-		  const short channels = 1;
 		  var sampleCount = sampleRate * durationSeconds;
 		  var bytesPerSample = bitsPerSample / 8;
 		  var dataSize = sampleCount * channels * bytesPerSample;
@@ -108,5 +145,26 @@ public sealed class CandidateChunkServiceTests
 				var sample = (short)(Math.Sin((2 * Math.PI * frequency * i) / sampleRate) * amplitude);
 				writer.Write(sample);
 		  }
+	 }
+
+	 private static int ReadDataChunkSize(string wavPath)
+	 {
+		  using var reader = new BinaryReader(File.OpenRead(wavPath));
+		  reader.BaseStream.Position = 12;
+
+		  while (reader.BaseStream.Position + 8 <= reader.BaseStream.Length)
+		  {
+				var chunkId = new string(reader.ReadChars(4));
+				var chunkSize = reader.ReadInt32();
+
+				if (chunkId == "data")
+				{
+					 return chunkSize;
+				}
+
+				reader.BaseStream.Position += chunkSize;
+		  }
+
+		  throw new InvalidDataException("WAV data chunk not found.");
 	 }
 }

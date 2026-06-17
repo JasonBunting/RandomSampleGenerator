@@ -25,6 +25,7 @@ public sealed class StemSeparationService
 	{
 		if (!SupportedModels.Contains(model))
 		{
+			// Unsupported model values are non-retryable configuration/runtime errors.
 			return StemSeparationResult.Failed(
 				model,
 				requestedStemType,
@@ -36,7 +37,8 @@ public sealed class StemSeparationService
 		var attemptFailures = new List<string>();
 		for (var attempt = 0; attempt <= MaxRetries; attempt++)
 		{
-			var result = SeparateOnce(model, requestedStemType, candidateChunkPath, outputRootPath, cancellationToken);
+			var retryOutputRoot = Path.Combine(outputRootPath, $"retry-{attempt:00}");
+			var result = SeparateOnce(model, requestedStemType, candidateChunkPath, retryOutputRoot, cancellationToken);
 			if (result.IsSuccess || result.IsCancelled)
 			{
 				return result;

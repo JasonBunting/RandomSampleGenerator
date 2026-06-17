@@ -52,8 +52,7 @@ public sealed class CandidateChunkService
 		  string stemType,
 		  int attemptNumber,
 		  double candidateChunkStartSeconds,
-		  int candidateChunkLengthSeconds,
-		  int sampleRate = 44100)
+		  int candidateChunkLengthSeconds)
 	 {
 		  var sourceExtension = Path.GetExtension(sourceSongPath);
 		  if (!sourceExtension.Equals(".wav", StringComparison.OrdinalIgnoreCase)
@@ -78,9 +77,7 @@ public sealed class CandidateChunkService
 					  sourceDurationSeconds);
 		  }
 
-		  var targetWaveFormat = new WaveFormat(sampleRate, 16, reader.WaveFormat.Channels);
-		  using var resampler = new MediaFoundationResampler(reader, targetWaveFormat);
-		  resampler.ResamplerQuality = 60;
+		  var targetWaveFormat = new WaveFormat(reader.WaveFormat.SampleRate, 16, reader.WaveFormat.Channels);
 
 		  var startOffset = TimeSpan.FromSeconds(candidateChunkStartSeconds);
 		  var maxStart = TimeSpan.FromSeconds(Math.Max(0, sourceDurationSeconds - candidateChunkLengthSeconds));
@@ -92,6 +89,8 @@ public sealed class CandidateChunkService
 		  reader.CurrentTime = startOffset;
 		  var bytesPerSecond = targetWaveFormat.AverageBytesPerSecond;
 		  var bytesRequired = checked(bytesPerSecond * candidateChunkLengthSeconds);
+		  var frameSize = targetWaveFormat.BlockAlign;
+		  var toleranceBytes = frameSize;
 
 		  var buffer = new byte[8192];
 		  using var writer = new WaveFileWriter(destinationPath, targetWaveFormat);
@@ -100,10 +99,19 @@ public sealed class CandidateChunkService
 		  while (totalBytesWritten < bytesRequired)
 		  {
 				 var bytesToRead = Math.Min(buffer.Length, bytesRequired - totalBytesWritten);
-				 var bytesRead = resampler.Read(buffer, 0, bytesToRead);
+				 var bytesRead = reader.Read(buffer, 0, bytesToRead);
 				 if (bytesRead <= 0)
 				 {
 					  break;
+				 }
+
+				 if (bytesRead % frameSize != 0)
+				 {
+					  bytesRead -= bytesRead % frameSize;
+					  if (bytesRead <= 0)
+					  {
+							break;
+					  }
 				 }
 
 				 writer.Write(buffer, 0, bytesRead);
@@ -113,6 +121,13 @@ public sealed class CandidateChunkService
 		  if (totalBytesWritten <= 0)
 		  {
 				 return CandidateChunkExtractionResult.Failure("Failed to extract candidate chunk audio data.", sourceDurationSeconds);
+		  }
+
+		  if (Math.Abs(totalBytesWritten - bytesRequired) > toleranceBytes)
+		  {
+				return CandidateChunkExtractionResult.Failure(
+					 $"Extracted chunk length mismatch. Expected {bytesRequired} bytes, wrote {totalBytesWritten} bytes.",
+					 sourceDurationSeconds);
 		  }
 
 		  return CandidateChunkExtractionResult.Success(destinationPath, sourceDurationSeconds);
