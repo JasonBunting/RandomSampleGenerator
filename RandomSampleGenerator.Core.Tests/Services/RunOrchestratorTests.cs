@@ -62,7 +62,9 @@ public sealed class RunOrchestratorTests
                 new RunFolderService(),
                 new ValidationService(),
                 new CandidateChunkService(),
-                new StemSeparationService(new FakeProcessRunner(simulateSuccess: true)));
+                new StemSeparationService(new FakeProcessRunner(simulateSuccess: true)),
+                new SampleExportService(),
+                new ExportFileNameBuilder());
 
             var result = sut.Run(runConfiguration, [songA], progressCallback: progress.Add);
 
@@ -74,7 +76,8 @@ public sealed class RunOrchestratorTests
 
             Assert.NotEqual(0, result.SongSelectionSeed);
             Assert.NotEqual(0, result.ProcessingSeed);
-            Assert.Empty(result.ExportedSamples);
+            Assert.NotEmpty(result.ExportedSamples);
+            Assert.All(result.ExportedSamples, sample => Assert.True(File.Exists(sample.ExportedFullPath)));
 
             Assert.Contains(progress, update => update.StemType == "bass" && update.FinalStatus == RowStatus.Skipped);
             Assert.Contains(progress, update => update.StemType == "drums" && update.FinalStatus.HasValue);
@@ -134,7 +137,9 @@ public sealed class RunOrchestratorTests
                 new RunFolderService(),
                 new ValidationService(),
                 new CandidateChunkService(),
-                new StemSeparationService(new FakeProcessRunner(simulateSuccess: true)));
+                new StemSeparationService(new FakeProcessRunner(simulateSuccess: true)),
+                new SampleExportService(),
+                new ExportFileNameBuilder());
             using var cts = new CancellationTokenSource();
 
             var result = sut.Run(runConfiguration, [songA], cts.Token, update =>
@@ -203,12 +208,12 @@ public sealed class RunOrchestratorTests
                 var inputName = Path.GetFileNameWithoutExtension(inputPath);
                 var outputDir = Path.Combine(outputRoot, model, inputName);
                 Directory.CreateDirectory(outputDir);
-                File.WriteAllBytes(Path.Combine(outputDir, "drums.wav"), [0]);
-                File.WriteAllBytes(Path.Combine(outputDir, "vocals.wav"), [0]);
-                File.WriteAllBytes(Path.Combine(outputDir, "bass.wav"), [0]);
-                File.WriteAllBytes(Path.Combine(outputDir, "other.wav"), [0]);
-                File.WriteAllBytes(Path.Combine(outputDir, "piano.wav"), [0]);
-                File.WriteAllBytes(Path.Combine(outputDir, "guitar.wav"), [0]);
+                WriteTestWav(Path.Combine(outputDir, "drums.wav"), 2);
+                WriteTestWav(Path.Combine(outputDir, "vocals.wav"), 2);
+                WriteTestWav(Path.Combine(outputDir, "bass.wav"), 2);
+                WriteTestWav(Path.Combine(outputDir, "other.wav"), 2);
+                WriteTestWav(Path.Combine(outputDir, "piano.wav"), 2);
+                WriteTestWav(Path.Combine(outputDir, "guitar.wav"), 2);
             }
 
             var psi = new ProcessStartInfo
@@ -232,16 +237,30 @@ public sealed class RunOrchestratorTests
 
         private static string GetArgumentValue(string arguments, string name)
         {
-            var marker = $"{name} \"";
-            var start = arguments.IndexOf(marker, StringComparison.Ordinal);
-            if (start < 0)
+            if (name == "-n")
+            {
+                var marker = "-n ";
+                var start = arguments.IndexOf(marker, StringComparison.Ordinal);
+                if (start < 0)
+                {
+                    return string.Empty;
+                }
+
+                start += marker.Length;
+                var end = arguments.IndexOf(' ', start);
+                return end > start ? arguments[start..end] : arguments[start..];
+            }
+
+            var quotedMarker = $"{name} \"";
+            var quotedStart = arguments.IndexOf(quotedMarker, StringComparison.Ordinal);
+            if (quotedStart < 0)
             {
                 return string.Empty;
             }
 
-            start += marker.Length;
-            var end = arguments.IndexOf('"', start);
-            return end > start ? arguments[start..end] : string.Empty;
+            quotedStart += quotedMarker.Length;
+            var quotedEnd = arguments.IndexOf('"', quotedStart);
+            return quotedEnd > quotedStart ? arguments[quotedStart..quotedEnd] : string.Empty;
         }
 
         private static string GetLastQuotedPath(string arguments)
@@ -259,6 +278,41 @@ public sealed class RunOrchestratorTests
             }
 
             return arguments[(previous + 1)..start];
+        }
+
+        private static void WriteTestWav(string outputPath, int durationSeconds)
+        {
+            const int sampleRate = 44100;
+            const short bitsPerSample = 16;
+            const short channels = 1;
+            var sampleCount = sampleRate * durationSeconds;
+            var bytesPerSample = bitsPerSample / 8;
+            var dataSize = sampleCount * channels * bytesPerSample;
+
+            using var stream = File.Create(outputPath);
+            using var writer = new BinaryWriter(stream);
+
+            writer.Write("RIFF"u8.ToArray());
+            writer.Write(36 + dataSize);
+            writer.Write("WAVE"u8.ToArray());
+            writer.Write("fmt "u8.ToArray());
+            writer.Write(16);
+            writer.Write((short)1);
+            writer.Write(channels);
+            writer.Write(sampleRate);
+            writer.Write(sampleRate * channels * bytesPerSample);
+            writer.Write((short)(channels * bytesPerSample));
+            writer.Write(bitsPerSample);
+            writer.Write("data"u8.ToArray());
+            writer.Write(dataSize);
+
+            var frequency = 440.0;
+            var amplitude = short.MaxValue * 0.2;
+            for (var i = 0; i < sampleCount; i++)
+            {
+                var sample = (short)(Math.Sin((2 * Math.PI * frequency * i) / sampleRate) * amplitude);
+                writer.Write(sample);
+            }
         }
     }
 }

@@ -12,6 +12,10 @@ public sealed class ExportedSampleRecord
 
     public required string StemTypeUsed { get; init; }
 
+    public required double FinalSampleStartSeconds { get; init; }
+
+    public required double FinalSampleDurationSeconds { get; init; }
+
     public required string ExportedFileName { get; init; }
 
     public required string ExportedFullPath { get; init; }

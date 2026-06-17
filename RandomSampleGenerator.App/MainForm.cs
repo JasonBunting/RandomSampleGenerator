@@ -245,7 +245,9 @@ public partial class MainForm : Form
             new RunFolderService(),
             _validationService,
             new CandidateChunkService(),
-            new StemSeparationService());
+            new StemSeparationService(),
+            new SampleExportService(),
+            new ExportFileNameBuilder());
         _runCancellationTokenSource = new CancellationTokenSource();
 
         try

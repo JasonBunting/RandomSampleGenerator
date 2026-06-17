@@ -8,17 +8,23 @@ public sealed class RunOrchestrator
 	 private readonly ValidationService _validationService;
 	 private readonly CandidateChunkService _candidateChunkService;
 	 private readonly StemSeparationService _stemSeparationService;
+	 private readonly SampleExportService _sampleExportService;
+	 private readonly ExportFileNameBuilder _exportFileNameBuilder;
 
 	 public RunOrchestrator(
 		  RunFolderService runFolderService,
 		  ValidationService validationService,
 		  CandidateChunkService candidateChunkService,
-		  StemSeparationService stemSeparationService)
+		  StemSeparationService stemSeparationService,
+		  SampleExportService sampleExportService,
+		  ExportFileNameBuilder exportFileNameBuilder)
 	 {
 		  _runFolderService = runFolderService;
 		  _validationService = validationService;
 		  _candidateChunkService = candidateChunkService;
 		  _stemSeparationService = stemSeparationService;
+		  _sampleExportService = sampleExportService;
+		  _exportFileNameBuilder = exportFileNameBuilder;
 	 }
 
 	 public RunResult Run(
@@ -50,6 +56,7 @@ public sealed class RunOrchestrator
 		  var replayMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 		  var replayData = new ReplaySupportData();
 		  var rowResults = new List<RowResult>();
+		  var exportRecords = new List<ExportedSampleRecord>();
 		  var usedStemTypesBySong = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 
 		  foreach (var row in runConfiguration.StemRows.OrderBy(row => Array.IndexOf(Constants.StemTypes.Ordered, row.StemType)))
@@ -155,6 +162,50 @@ public sealed class RunOrchestrator
 
 					 if (separationResult.IsSuccess)
 					 {
+						  var stemDurationSeconds = _sampleExportService.GetAudioDurationSeconds(separationResult.SeparatedStemPath!);
+						  if (!stemDurationSeconds.HasValue)
+						  {
+								continue;
+						  }
+
+						  var finalMaxStart = stemDurationSeconds.Value - row.FinalSampleLengthSeconds;
+						  if (finalMaxStart < 0)
+						  {
+								continue;
+						  }
+
+						  var finalSampleStartSeconds = randomizationService.PickChunkStartSeconds(finalMaxStart);
+						  var exportFileName = _exportFileNameBuilder.Build(song, row.StemType);
+						  var exportFullPath = Path.Combine(runContext.RunFolderPath, exportFileName);
+
+						  try
+						  {
+								_sampleExportService.ExportFinalSampleWav(
+									 separationResult.SeparatedStemPath!,
+									 exportFullPath,
+									 finalSampleStartSeconds,
+									 row.FinalSampleLengthSeconds,
+									 runConfiguration.AppConfiguration.ExportSampleRate,
+									 runConfiguration.AppConfiguration.ExportBitDepth);
+						  }
+						  catch
+						  {
+								continue;
+						  }
+
+						  exportRecords.Add(new ExportedSampleRecord
+						  {
+								SourceFilePath = song,
+								CandidateChunkStartSeconds = candidateChunkStartSeconds,
+								CandidateChunkDurationSeconds = row.CandidateChunkLengthSeconds,
+								ModelUsed = row.Model,
+								StemTypeUsed = row.StemType,
+								FinalSampleStartSeconds = finalSampleStartSeconds,
+								FinalSampleDurationSeconds = row.FinalSampleLengthSeconds,
+								ExportedFileName = exportFileName,
+								ExportedFullPath = exportFullPath
+						  });
+
 						  produced++;
 						  progressCallback?.Invoke(new RowProgressUpdate(row.StemType, row.Quantity, produced, null));
 					 }
@@ -190,7 +241,7 @@ public sealed class RunOrchestrator
 				ProcessingSeed = runContext.ProcessingSeed,
 				ReplaySupportData = replayData,
 				RowResults = rowResults,
-				ExportedSamples = []
+			ExportedSamples = exportRecords
 		  };
 
 		  return runResult;
