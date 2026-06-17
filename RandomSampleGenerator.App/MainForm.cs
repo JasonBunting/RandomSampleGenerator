@@ -249,7 +249,17 @@ public partial class MainForm : Form
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Run failed: {ex.Message}", "Run Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            if (TryGetRunResultFromException(ex, out var failedResult) && failedResult is not null)
+            {
+                ApplyFinalRowStates(failedResult.RowResults);
+            }
+
+            var runFolderPath = TryGetRunFolderPathFromException(ex);
+            var message = string.IsNullOrWhiteSpace(runFolderPath)
+                ? $"Run failed: {ex.Message}"
+                : $"Run failed: {ex.Message}{Environment.NewLine}{Environment.NewLine}Any partial outputs and run artifacts were kept in:{Environment.NewLine}{runFolderPath}";
+
+            MessageBox.Show(message, "Run Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
@@ -433,6 +443,38 @@ public partial class MainForm : Form
         {
             // Keep post-run UX best-effort only.
         }
+    }
+
+    private static string? TryGetRunFolderPathFromException(Exception ex)
+    {
+        if (ex.Data.Contains("RunFolderPath") && ex.Data["RunFolderPath"] is string fromTop && !string.IsNullOrWhiteSpace(fromTop))
+        {
+            return fromTop;
+        }
+
+        if (ex.InnerException is not null)
+        {
+            return TryGetRunFolderPathFromException(ex.InnerException);
+        }
+
+        return null;
+    }
+
+    private static bool TryGetRunResultFromException(Exception ex, out RunResult? runResult)
+    {
+        if (ex.Data.Contains("RunResult") && ex.Data["RunResult"] is RunResult fromTop)
+        {
+            runResult = fromTop;
+            return true;
+        }
+
+        if (ex.InnerException is not null)
+        {
+            return TryGetRunResultFromException(ex.InnerException, out runResult);
+        }
+
+        runResult = null;
+        return false;
     }
 
     private void SaveConfigFromUI()

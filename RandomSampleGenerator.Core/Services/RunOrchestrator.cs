@@ -338,12 +338,18 @@ public sealed class RunOrchestrator
 					runException.Data["ArtifactWriteFailures"] = new AggregateException("Artifact writing also encountered errors.", artifactWriteErrors);
 				}
 
-				throw new InvalidOperationException("Run failed during processing. Manifest was still attempted.", runException);
+				var processingFailure = new InvalidOperationException("Run failed during processing. Manifest was still attempted.", runException);
+				processingFailure.Data["RunFolderPath"] = runContext.RunFolderPath;
+				processingFailure.Data["RunResult"] = runResult;
+				throw processingFailure;
 		  }
 
 		  if (artifactWriteErrors.Count > 0)
 		  {
-				throw new AggregateException("Run completed but artifact writing encountered errors.", artifactWriteErrors);
+				var artifactFailure = new AggregateException("Run completed but artifact writing encountered errors.", artifactWriteErrors);
+				artifactFailure.Data["RunFolderPath"] = runContext.RunFolderPath;
+				artifactFailure.Data["RunResult"] = runResult;
+				throw artifactFailure;
 		  }
 
 		  return runResult;
