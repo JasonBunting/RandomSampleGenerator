@@ -54,14 +54,28 @@ public sealed class RunOrchestrator
 				ProcessingSeed = Random.Shared.Next()
 		  };
 
-		  var logger = new LoggingService(runContext.LogFilePath, runConfiguration.AppConfiguration.LoggingEnabled);
 		  var artifactWriteErrors = new List<Exception>();
+		  LoggingService? logger = null;
+
+		  try
+		  {
+				logger = new LoggingService(runContext.LogFilePath, runConfiguration.AppConfiguration.LoggingEnabled);
+		  }
+		  catch (Exception ex)
+		  {
+				artifactWriteErrors.Add(new InvalidOperationException("Failed to initialize run logger.", ex));
+		  }
 
 		  void SafeLog(string message)
 		  {
+				if (logger is null)
+				{
+					 return;
+				}
+
 				try
 				{
-					 logger.Info(message);
+					logger.Info(message);
 				}
 				catch (Exception ex)
 				{
@@ -260,9 +274,15 @@ public sealed class RunOrchestrator
 				SafeLog($"Run failed with unhandled exception: {ex}");
 		  }
 
+		  var resolvedStatus = ResolveRunStatus(rowResults, cancellationToken.IsCancellationRequested);
+		  if (runException is not null && resolvedStatus != RunStatus.Cancelled)
+		  {
+				resolvedStatus = RunStatus.Failed;
+		  }
+
 		  var runResult = new RunResult
 		  {
-				Status = ResolveRunStatus(rowResults, cancellationToken.IsCancellationRequested),
+				Status = resolvedStatus,
 				RunStart = runContext.RunStart,
 				RunEnd = DateTimeOffset.UtcNow,
 				SourceRootPath = runConfiguration.AppConfiguration.SourceFolderPath,
@@ -290,14 +310,19 @@ public sealed class RunOrchestrator
 				artifactWriteErrors.Add(new InvalidOperationException("Failed to write run manifest.", ex));
 		  }
 
+		  if (runException is not null)
+		  {
+				if (artifactWriteErrors.Count > 0)
+				{
+					runException.Data["ArtifactWriteFailures"] = new AggregateException("Artifact writing also encountered errors.", artifactWriteErrors);
+				}
+
+				throw new InvalidOperationException("Run failed during processing. Manifest was still attempted.", runException);
+		  }
+
 		  if (artifactWriteErrors.Count > 0)
 		  {
 				throw new AggregateException("Run completed but artifact writing encountered errors.", artifactWriteErrors);
-		  }
-
-		  if (runException is not null)
-		  {
-				throw new InvalidOperationException("Run failed during processing. Manifest was still attempted.", runException);
 		  }
 
 		  return runResult;
