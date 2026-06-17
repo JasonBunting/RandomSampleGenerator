@@ -14,7 +14,7 @@ public sealed class RunOrchestratorTests
         Directory.CreateDirectory(sourceRoot);
         Directory.CreateDirectory(targetRoot);
         var songA = Path.Combine(sourceRoot, "Song A.wav");
-        File.WriteAllBytes(songA, new byte[256]);
+        CreateSineWave(songA, durationSeconds: 12);
 
         try
         {
@@ -95,7 +95,7 @@ public sealed class RunOrchestratorTests
         Directory.CreateDirectory(sourceRoot);
         Directory.CreateDirectory(targetRoot);
         var songA = Path.Combine(sourceRoot, "Song A.wav");
-        File.WriteAllBytes(songA, new byte[256]);
+        CreateSineWave(songA, durationSeconds: 12);
 
         try
         {
@@ -152,6 +152,41 @@ public sealed class RunOrchestratorTests
         {
             Directory.Delete(sourceRoot, true);
             Directory.Delete(targetRoot, true);
+        }
+    }
+
+    private static void CreateSineWave(string outputPath, int durationSeconds)
+    {
+        const int sampleRate = 44100;
+        const short bitsPerSample = 16;
+        const short channels = 1;
+        var sampleCount = sampleRate * durationSeconds;
+        var bytesPerSample = bitsPerSample / 8;
+        var dataSize = sampleCount * channels * bytesPerSample;
+
+        using var stream = File.Create(outputPath);
+        using var writer = new BinaryWriter(stream);
+
+        writer.Write("RIFF"u8.ToArray());
+        writer.Write(36 + dataSize);
+        writer.Write("WAVE"u8.ToArray());
+        writer.Write("fmt "u8.ToArray());
+        writer.Write(16);
+        writer.Write((short)1);
+        writer.Write(channels);
+        writer.Write(sampleRate);
+        writer.Write(sampleRate * channels * bytesPerSample);
+        writer.Write((short)(channels * bytesPerSample));
+        writer.Write(bitsPerSample);
+        writer.Write("data"u8.ToArray());
+        writer.Write(dataSize);
+
+        var frequency = 440.0;
+        var amplitude = short.MaxValue * 0.2;
+        for (var i = 0; i < sampleCount; i++)
+        {
+            var sample = (short)(Math.Sin((2 * Math.PI * frequency * i) / sampleRate) * amplitude);
+            writer.Write(sample);
         }
     }
 

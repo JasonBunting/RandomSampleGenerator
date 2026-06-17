@@ -5,117 +5,150 @@ namespace RandomSampleGenerator.Core.Services;
 
 public sealed class StemSeparationService
 {
-	 private static readonly HashSet<string> SupportedModels = ["htdemucs", "htdemucs_6s"];
-	 private readonly IProcessRunner _processRunner;
-	 private readonly Lock _processLock = new();
-	 private Process? _activeProcess;
+	private static readonly HashSet<string> SupportedModels = ["htdemucs", "htdemucs_6s"];
+	private const int MaxRetries = 2;
+	private readonly IProcessRunner _processRunner;
+	private readonly Lock _processLock = new();
+	private Process? _activeProcess;
 
-	 public StemSeparationService(IProcessRunner? processRunner = null)
-	 {
-		  _processRunner = processRunner ?? new DefaultProcessRunner();
-	 }
+	public StemSeparationService(IProcessRunner? processRunner = null)
+	{
+		_processRunner = processRunner ?? new DefaultProcessRunner();
+	}
 
-	 public StemSeparationResult Separate(
-		  string model,
-		  string requestedStemType,
-		  string candidateChunkPath,
-		  string outputRootPath,
-		  CancellationToken cancellationToken)
-	 {
-		  if (!SupportedModels.Contains(model))
-		  {
-				throw new InvalidOperationException($"Unsupported Demucs model '{model}' for v1.");
-		  }
+	public StemSeparationResult Separate(
+		string model,
+		string requestedStemType,
+		string candidateChunkPath,
+		string outputRootPath,
+		CancellationToken cancellationToken)
+	{
+		if (!SupportedModels.Contains(model))
+		{
+			return StemSeparationResult.Failed(
+				model,
+				requestedStemType,
+				candidateChunkPath,
+				outputRootPath,
+				$"Unsupported Demucs model '{model}' for v1.");
+		}
 
-		  Directory.CreateDirectory(outputRootPath);
+		var attemptFailures = new List<string>();
+		for (var attempt = 0; attempt <= MaxRetries; attempt++)
+		{
+			var result = SeparateOnce(model, requestedStemType, candidateChunkPath, outputRootPath, cancellationToken);
+			if (result.IsSuccess || result.IsCancelled)
+			{
+				return result;
+			}
 
-		  var startInfo = new ProcessStartInfo
-		  {
-				FileName = "py",
-				Arguments = $"-3.9 -m demucs -n {model} --out \"{outputRootPath}\" \"{candidateChunkPath}\"",
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-				CreateNoWindow = true
-		  };
+			attemptFailures.Add($"Attempt {attempt + 1}/{MaxRetries + 1}: {result.FailureReason}");
+		}
 
-		  using var registration = cancellationToken.Register(CancelActiveProcess);
+		return StemSeparationResult.Failed(
+			model,
+			requestedStemType,
+			candidateChunkPath,
+			outputRootPath,
+			string.Join(" | ", attemptFailures));
+	}
 
-		  Process process;
-		  lock (_processLock)
-		  {
-				process = _processRunner.Start(startInfo);
-				_activeProcess = process;
-		  }
+	private StemSeparationResult SeparateOnce(
+		string model,
+		string requestedStemType,
+		string candidateChunkPath,
+		string outputRootPath,
+		CancellationToken cancellationToken)
+	{
+		Directory.CreateDirectory(outputRootPath);
 
-		  try
-		  {
-				process.WaitForExit();
+		var startInfo = new ProcessStartInfo
+		{
+			FileName = "py",
+			Arguments = $"-3.9 -m demucs -n {model} --out \"{outputRootPath}\" \"{candidateChunkPath}\"",
+			RedirectStandardOutput = true,
+			RedirectStandardError = true,
+			UseShellExecute = false,
+			CreateNoWindow = true
+		};
 
-				var stdout = process.StandardOutput.ReadToEnd();
-				var stderr = process.StandardError.ReadToEnd();
+		using var registration = cancellationToken.Register(CancelActiveProcess);
 
-				if (cancellationToken.IsCancellationRequested)
-				{
-					 return StemSeparationResult.Cancelled(model, requestedStemType, candidateChunkPath, outputRootPath);
-				}
+		Process process;
+		lock (_processLock)
+		{
+			process = _processRunner.Start(startInfo);
+			_activeProcess = process;
+		}
 
-				if (process.ExitCode != 0)
-				{
-					 return StemSeparationResult.Failed(model, requestedStemType, candidateChunkPath, outputRootPath,
-						  $"Demucs exited with code {process.ExitCode}. {stderr}".Trim());
-				}
+		try
+		{
+			process.WaitForExit();
 
-				var separatedStemPath = FindSeparatedStemPath(outputRootPath, model, candidateChunkPath, requestedStemType);
-				if (separatedStemPath is null)
-				{
-					 return StemSeparationResult.Failed(model, requestedStemType, candidateChunkPath, outputRootPath,
-						  "Demucs completed but expected requested stem output was not found.");
-				}
+			var stdout = process.StandardOutput.ReadToEnd();
+			var stderr = process.StandardError.ReadToEnd();
 
-				return StemSeparationResult.Succeeded(model, requestedStemType, candidateChunkPath, outputRootPath, separatedStemPath, stdout, stderr);
-		  }
-		  catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
-		  {
+			if (cancellationToken.IsCancellationRequested)
+			{
+				return StemSeparationResult.Cancelled(model, requestedStemType, candidateChunkPath, outputRootPath);
+			}
+
+			if (process.ExitCode != 0)
+			{
 				return StemSeparationResult.Failed(model, requestedStemType, candidateChunkPath, outputRootPath,
-					 $"Failed to invoke Demucs via 'py -3.9 -m demucs'. {ex.Message}");
-		  }
-		  finally
-		  {
-				lock (_processLock)
-				{
-					 if (ReferenceEquals(_activeProcess, process))
-					 {
-						  _activeProcess = null;
-					 }
-				}
+					$"Demucs exited with code {process.ExitCode}. {stderr}".Trim());
+			}
 
-				process.Dispose();
-		  }
-	 }
+			var separatedStemPath = FindSeparatedStemPath(outputRootPath, model, candidateChunkPath, requestedStemType);
+			if (separatedStemPath is null)
+			{
+				return StemSeparationResult.Failed(model, requestedStemType, candidateChunkPath, outputRootPath,
+					"Demucs completed but expected requested stem output was not found.");
+			}
 
-	 public void CancelActiveProcess()
-	 {
-		  lock (_processLock)
-		  {
-				if (_activeProcess is null)
+			return StemSeparationResult.Succeeded(model, requestedStemType, candidateChunkPath, outputRootPath, separatedStemPath, stdout, stderr);
+		}
+		catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+		{
+			return StemSeparationResult.Failed(model, requestedStemType, candidateChunkPath, outputRootPath,
+				$"Failed to invoke Demucs via 'py -3.9 -m demucs'. {ex.Message}");
+		}
+		finally
+		{
+			lock (_processLock)
+			{
+				if (ReferenceEquals(_activeProcess, process))
 				{
-					 return;
+					_activeProcess = null;
 				}
+			}
 
-				try
+			process.Dispose();
+		}
+	}
+
+	public void CancelActiveProcess()
+	{
+		lock (_processLock)
+		{
+			if (_activeProcess is null)
+			{
+				return;
+			}
+
+			try
+			{
+				if (!_activeProcess.HasExited)
 				{
-					 if (!_activeProcess.HasExited)
-					 {
-						  _activeProcess.Kill(true);
-					 }
+					_activeProcess.Kill(true);
 				}
-				catch
-				{
-					 // Best-effort process termination for cancellation flow.
-				}
-		  }
-	 }
+			}
+			catch
+			{
+				// Best-effort process termination for cancellation flow.
+			}
+		}
+	}
 
 	 private static string? FindSeparatedStemPath(string outputRootPath, string model, string candidateChunkPath, string requestedStemType)
 	 {

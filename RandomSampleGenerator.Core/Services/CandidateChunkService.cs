@@ -1,7 +1,44 @@
+using NAudio.Wave;
+
 namespace RandomSampleGenerator.Core.Services;
 
 public sealed class CandidateChunkService
 {
+	 public sealed class CandidateChunkExtractionResult
+	 {
+		  public required bool IsSuccess { get; init; }
+		  public string? CandidateChunkPath { get; init; }
+		  public string? FailureReason { get; init; }
+		  public double? SourceDurationSeconds { get; init; }
+
+		  public static CandidateChunkExtractionResult Success(string chunkPath, double sourceDurationSeconds) => new()
+		  {
+				 IsSuccess = true,
+				 CandidateChunkPath = chunkPath,
+				 SourceDurationSeconds = sourceDurationSeconds
+		  };
+
+		  public static CandidateChunkExtractionResult Failure(string reason, double? sourceDurationSeconds = null) => new()
+		  {
+				 IsSuccess = false,
+				 FailureReason = reason,
+				 SourceDurationSeconds = sourceDurationSeconds
+		  };
+	 }
+
+	 public double? GetSourceDurationSeconds(string sourceSongPath)
+	 {
+		  try
+		  {
+				 using var reader = CreateReader(sourceSongPath);
+				 return reader.TotalTime.TotalSeconds;
+		  }
+		  catch
+		  {
+				 return null;
+		  }
+	 }
+
 	 public string EnsureRunTempRoot(string runFolderPath)
 	 {
 		  var tempRoot = Path.Combine(runFolderPath, ".temp");
@@ -9,15 +46,22 @@ public sealed class CandidateChunkService
 		  return tempRoot;
 	 }
 
-	 public string PrepareCandidateChunkWav(
+	 public CandidateChunkExtractionResult PrepareCandidateChunkWav(
 		  string runTempRoot,
 		  string sourceSongPath,
 		  string stemType,
 		  int attemptNumber,
+		  double candidateChunkStartSeconds,
 		  int candidateChunkLengthSeconds,
-		  int sampleRate = 44100,
-		  int bitDepth = 16)
+		  int sampleRate = 44100)
 	 {
+		  var sourceExtension = Path.GetExtension(sourceSongPath);
+		  if (!sourceExtension.Equals(".wav", StringComparison.OrdinalIgnoreCase)
+				  && !sourceExtension.Equals(".mp3", StringComparison.OrdinalIgnoreCase))
+		  {
+				 return CandidateChunkExtractionResult.Failure($"Unsupported source format '{sourceExtension}'.");
+		  }
+
 		  var inputRoot = Path.Combine(runTempRoot, "inputs", stemType);
 		  Directory.CreateDirectory(inputRoot);
 
@@ -25,8 +69,53 @@ public sealed class CandidateChunkService
 		  var fileName = $"{Sanitize(sourceName)}-{stemType}-attempt-{attemptNumber:000}.wav";
 		  var destinationPath = Path.Combine(inputRoot, fileName);
 
-		  WriteSilenceWav(destinationPath, sampleRate, bitDepth, candidateChunkLengthSeconds);
-		  return destinationPath;
+		  using var reader = CreateReader(sourceSongPath);
+		  var sourceDurationSeconds = reader.TotalTime.TotalSeconds;
+		  if (sourceDurationSeconds < candidateChunkLengthSeconds)
+		  {
+				 return CandidateChunkExtractionResult.Failure(
+					  $"Source duration {sourceDurationSeconds:F2}s is shorter than candidate chunk length {candidateChunkLengthSeconds}s.",
+					  sourceDurationSeconds);
+		  }
+
+		  var targetWaveFormat = new WaveFormat(sampleRate, 16, reader.WaveFormat.Channels);
+		  using var resampler = new MediaFoundationResampler(reader, targetWaveFormat);
+		  resampler.ResamplerQuality = 60;
+
+		  var startOffset = TimeSpan.FromSeconds(candidateChunkStartSeconds);
+		  var maxStart = TimeSpan.FromSeconds(Math.Max(0, sourceDurationSeconds - candidateChunkLengthSeconds));
+		  if (startOffset > maxStart)
+		  {
+				 startOffset = maxStart;
+		  }
+
+		  reader.CurrentTime = startOffset;
+		  var bytesPerSecond = targetWaveFormat.AverageBytesPerSecond;
+		  var bytesRequired = checked(bytesPerSecond * candidateChunkLengthSeconds);
+
+		  var buffer = new byte[8192];
+		  using var writer = new WaveFileWriter(destinationPath, targetWaveFormat);
+		  var totalBytesWritten = 0;
+
+		  while (totalBytesWritten < bytesRequired)
+		  {
+				 var bytesToRead = Math.Min(buffer.Length, bytesRequired - totalBytesWritten);
+				 var bytesRead = resampler.Read(buffer, 0, bytesToRead);
+				 if (bytesRead <= 0)
+				 {
+					  break;
+				 }
+
+				 writer.Write(buffer, 0, bytesRead);
+				 totalBytesWritten += bytesRead;
+		  }
+
+		  if (totalBytesWritten <= 0)
+		  {
+				 return CandidateChunkExtractionResult.Failure("Failed to extract candidate chunk audio data.", sourceDurationSeconds);
+		  }
+
+		  return CandidateChunkExtractionResult.Success(destinationPath, sourceDurationSeconds);
 	 }
 
 	 public string GetAttemptOutputRoot(string runTempRoot, string stemType, int attemptNumber)
@@ -47,34 +136,8 @@ public sealed class CandidateChunkService
 		  return new string(chars);
 	 }
 
-	 private static void WriteSilenceWav(string destinationPath, int sampleRate, int bitDepth, int lengthSeconds)
+	 private static AudioFileReader CreateReader(string sourceSongPath)
 	 {
-		  if (bitDepth != 16)
-		  {
-				throw new ArgumentOutOfRangeException(nameof(bitDepth), "Phase 6 candidate chunk placeholder supports 16-bit WAV only.");
-		  }
-
-		  var channels = 1;
-		  var bytesPerSample = bitDepth / 8;
-		  var sampleCount = sampleRate * lengthSeconds;
-		  var dataSize = sampleCount * channels * bytesPerSample;
-
-		  using var stream = File.Create(destinationPath);
-		  using var writer = new BinaryWriter(stream);
-
-		  writer.Write("RIFF"u8.ToArray());
-		  writer.Write(36 + dataSize);
-		  writer.Write("WAVE"u8.ToArray());
-		  writer.Write("fmt "u8.ToArray());
-		  writer.Write(16);
-		  writer.Write((short)1);
-		  writer.Write((short)channels);
-		  writer.Write(sampleRate);
-		  writer.Write(sampleRate * channels * bytesPerSample);
-		  writer.Write((short)(channels * bytesPerSample));
-		  writer.Write((short)bitDepth);
-		  writer.Write("data"u8.ToArray());
-		  writer.Write(dataSize);
-		  writer.Write(new byte[dataSize]);
+		  return new AudioFileReader(sourceSongPath);
 	 }
 }

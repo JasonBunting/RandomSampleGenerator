@@ -10,8 +10,10 @@ public sealed class StemSeparationServiceTests
 	 {
 		  var sut = new StemSeparationService(new NoopProcessRunner());
 
-		  Assert.Throws<InvalidOperationException>(() =>
-				sut.Separate("not-a-model", "drums", "in.wav", Path.GetTempPath(), CancellationToken.None));
+			 var result = sut.Separate("not-a-model", "drums", "in.wav", Path.GetTempPath(), CancellationToken.None);
+
+		  Assert.False(result.IsSuccess);
+		  Assert.Contains("Unsupported Demucs model", result.FailureReason ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 	 }
 
 	 [Fact]
@@ -31,6 +33,7 @@ public sealed class StemSeparationServiceTests
 				Assert.False(result.IsSuccess);
 				Assert.False(result.IsCancelled);
 				Assert.Contains("expected requested stem output", result.FailureReason ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+				  Assert.Contains("Attempt 3/3", result.FailureReason ?? string.Empty, StringComparison.OrdinalIgnoreCase);
 		  }
 		  finally
 		  {

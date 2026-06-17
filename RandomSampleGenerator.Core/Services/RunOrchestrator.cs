@@ -113,20 +113,39 @@ public sealed class RunOrchestrator
 					 var sourceId = GetReplaySongId(song, replayMap, replayData.SourceFileMap);
 					 replayData.OrderedChosenSongIds.Add(sourceId);
 
+					 var sourceDurationSeconds = _candidateChunkService.GetSourceDurationSeconds(song);
+					 if (!sourceDurationSeconds.HasValue)
+					 {
+						  continue;
+					 }
+
+					 var maxStartSeconds = sourceDurationSeconds.Value - row.CandidateChunkLengthSeconds;
+					 if (maxStartSeconds < 0)
+					 {
+						  continue;
+					 }
+
+					 var candidateChunkStartSeconds = randomizationService.PickChunkStartSeconds(maxStartSeconds);
+
 					 var candidateChunkPath = _candidateChunkService.PrepareCandidateChunkWav(
 						  runTempRoot,
 						  song,
 						  row.StemType,
 						  attempts,
+						  candidateChunkStartSeconds,
 						  row.CandidateChunkLengthSeconds,
-						  runConfiguration.AppConfiguration.ExportSampleRate,
-						  runConfiguration.AppConfiguration.ExportBitDepth);
+						  runConfiguration.AppConfiguration.ExportSampleRate);
+
+					 if (!candidateChunkPath.IsSuccess || string.IsNullOrWhiteSpace(candidateChunkPath.CandidateChunkPath))
+					 {
+						  continue;
+					 }
 
 					 var attemptOutputRoot = _candidateChunkService.GetAttemptOutputRoot(runTempRoot, row.StemType, attempts);
 					 var separationResult = _stemSeparationService.Separate(
 						  row.Model,
 						  row.StemType,
-						  candidateChunkPath,
+						  candidateChunkPath.CandidateChunkPath,
 						  attemptOutputRoot,
 						  cancellationToken);
 
