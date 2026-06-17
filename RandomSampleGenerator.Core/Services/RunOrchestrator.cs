@@ -91,12 +91,16 @@ public sealed class RunOrchestrator
 		  var exportRecords = new List<ExportedSampleRecord>();
 		  var usedStemTypesBySong = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
 		  Exception? runException = null;
+		  StemRowConfiguration? activeRow = null;
+		  int activeRowProduced = 0;
 		  SafeLog($"Run started. Name='{runContext.RunName}', RunFolder='{runContext.RunFolderPath}', SourceCount={sourcePool.Count}, SongSelectionSeed={runContext.SongSelectionSeed}, ProcessingSeed={runContext.ProcessingSeed}");
 
 		  try
 		  {
 				foreach (var row in runConfiguration.StemRows.OrderBy(row => Array.IndexOf(Constants.StemTypes.Ordered, row.StemType)))
 				{
+				activeRow = row;
+				activeRowProduced = 0;
 				if (row.Quantity == 0)
 				{
 					 var skipped = new RowResult
@@ -247,6 +251,7 @@ public sealed class RunOrchestrator
 						  });
 
 						  produced++;
+						 activeRowProduced = produced;
 						  progressCallback?.Invoke(new RowProgressUpdate(row.StemType, row.Quantity, produced, null));
 						 SafeLog($"Row '{row.StemType}' produced sample {produced}/{row.Quantity}: '{exportFileName}' from source '{song}'.");
 					 }
@@ -266,11 +271,27 @@ public sealed class RunOrchestrator
 				rowResults.Add(result);
 				progressCallback?.Invoke(new RowProgressUpdate(result.StemType, result.RequestedCount, result.ProducedCount, result.Status));
 				SafeLog($"Row '{result.StemType}' ended with status {result.Status}. Produced={result.ProducedCount}/{result.RequestedCount}.");
+				activeRow = null;
+				activeRowProduced = 0;
 				}
 		  }
 		  catch (Exception ex)
 		  {
 				runException = ex;
+				if (activeRow is not null
+					 && !rowResults.Any(row => row.StemType.Equals(activeRow.StemType, StringComparison.OrdinalIgnoreCase)))
+				{
+					 rowResults.Add(new RowResult
+					 {
+						  StemType = activeRow.StemType,
+						  Model = activeRow.Model,
+						  RequestedCount = activeRow.Quantity,
+						  ProducedCount = activeRowProduced,
+						  CandidateChunkLengthSeconds = activeRow.CandidateChunkLengthSeconds,
+						  FinalSampleLengthSeconds = activeRow.FinalSampleLengthSeconds,
+						  Status = ResolveRowStatus(activeRowProduced, activeRow.Quantity, cancellationToken.IsCancellationRequested)
+					 });
+				}
 				SafeLog($"Run failed with unhandled exception: {ex}");
 		  }
 

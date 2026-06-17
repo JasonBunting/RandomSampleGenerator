@@ -132,9 +132,11 @@ public partial class MainForm : Form
     {
         SaveConfigFromUI();
 
-        if (!Directory.Exists(_config.SourceFolderPath))
+        var runConfiguration = BuildRunConfigurationFromUI();
+        var validationErrors = _validationService.ValidateBeforeRun(runConfiguration);
+        if (validationErrors.Count > 0)
         {
-            MessageBox.Show("Configured source folder does not exist.",
+            MessageBox.Show(string.Join(Environment.NewLine, validationErrors),
                 "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
@@ -158,7 +160,7 @@ public partial class MainForm : Form
         }
 
         EnterRunMode();
-        _ = ExecuteRunAsync();
+        _ = ExecuteRunAsync(runConfiguration);
     }
 
     private void EnterRunMode()
@@ -218,28 +220,12 @@ public partial class MainForm : Form
         _runCancellationTokenSource?.Cancel();
     }
 
-    private async Task ExecuteRunAsync()
+    private async Task ExecuteRunAsync(RunConfiguration runConfiguration)
     {
         foreach (var row in _stemRows)
         {
             row.SetProgress(0, row.Quantity);
         }
-
-        var runConfiguration = new RunConfiguration
-        {
-            AppConfiguration = _config,
-            StemRows =
-            [
-                .. _stemRows.Select(row => new StemRowConfiguration
-                {
-                    StemType = row.StemType,
-                    Model = row.SelectedModel,
-                    Quantity = row.Quantity,
-                    CandidateChunkLengthSeconds = row.CandidateChunkLengthSeconds,
-                    FinalSampleLengthSeconds = row.FinalSampleLengthSeconds
-                })
-            ]
-        };
 
         var orchestrator = new RunOrchestrator(
             new RunFolderService(),
@@ -273,6 +259,25 @@ public partial class MainForm : Form
             _isRunInProgress = false;
             SetRunInputLockState(isRunning: false);
         }
+    }
+
+    private RunConfiguration BuildRunConfigurationFromUI()
+    {
+        return new RunConfiguration
+        {
+            AppConfiguration = _config,
+            StemRows =
+            [
+                .. _stemRows.Select(row => new StemRowConfiguration
+                {
+                    StemType = row.StemType,
+                    Model = row.SelectedModel,
+                    Quantity = row.Quantity,
+                    CandidateChunkLengthSeconds = row.CandidateChunkLengthSeconds,
+                    FinalSampleLengthSeconds = row.FinalSampleLengthSeconds
+                })
+            ]
+        };
     }
 
     private void ApplyRowProgressUpdate(RowProgressUpdate update)
