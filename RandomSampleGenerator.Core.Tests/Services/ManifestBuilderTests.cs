@@ -57,7 +57,7 @@ public sealed class ManifestBuilderTests
             var sut = new ManifestBuilder();
             var path = sut.WriteManifest(runFolder, result);
 
-            Assert.Equal(Path.Combine(runFolder, "run-manifest.json"), path);
+            Assert.Equal(Path.Combine(runFolder, RunFolderService.ManifestFileName), path);
             Assert.True(File.Exists(path));
 
             var json = File.ReadAllText(path);

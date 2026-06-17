@@ -1,12 +1,14 @@
 using RandomSampleGenerator.Core.Constants;
 using RandomSampleGenerator.Core.Models;
 using RandomSampleGenerator.Core.Services;
+using System.Diagnostics;
 
 namespace RandomSampleGenerator.App;
 
 public partial class MainForm : Form
 {
     private readonly ConfigurationService _configService;
+    private readonly ValidationService _validationService = new();
     private AppConfiguration _config;
 
     private readonly StemRowControl[] _stemRows;
@@ -106,15 +108,10 @@ public partial class MainForm : Form
 
     private void OnRunClick(object? sender, EventArgs e)
     {
-        // Phase 1: validate and show message. Full run logic is Phase 2+.
         SaveConfigFromUI();
 
-        var errors = new List<string>();
-        if (!Directory.Exists(_config.SourceFolderPath))
-            errors.Add("Source folder does not exist.");
-        if (!Directory.Exists(_config.TargetFolderPath))
-            errors.Add("Target folder does not exist.");
-
+        var runConfiguration = BuildRunConfiguration();
+        var errors = _validationService.ValidateBeforeRun(runConfiguration);
         if (errors.Count > 0)
         {
             MessageBox.Show(string.Join(Environment.NewLine, errors),
@@ -122,8 +119,54 @@ public partial class MainForm : Form
             return;
         }
 
-        MessageBox.Show("Run configuration is valid. Full run processing will be implemented in a future phase.",
-            "Ready", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        try
+        {
+            var orchestrator = new RunOrchestrator(
+                new SourcePoolScanner(),
+                new RunFolderService(),
+                _validationService,
+                new ManifestBuilder(),
+                new SampleExportService(),
+                new ExportFileNameBuilder());
+
+            var result = orchestrator.Run(runConfiguration);
+
+            if (_config.AutoOpenOutputFolder && Directory.Exists(result.RunFolderPath))
+            {
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = result.RunFolderPath,
+                    UseShellExecute = true
+                });
+            }
+
+            MessageBox.Show($"Run {result.Status}.\nOutput: {result.RunFolderPath}",
+                "Run Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Run failed: {ex.Message}",
+                "Run Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+    }
+
+    private RunConfiguration BuildRunConfiguration()
+    {
+        return new RunConfiguration
+        {
+            AppConfiguration = _config,
+            StemRows =
+            [
+                .. _stemRows.Select(row => new StemRowConfiguration
+                {
+                    StemType = row.StemType,
+                    Model = row.SelectedModel,
+                    Quantity = row.Quantity,
+                    CandidateChunkLengthSeconds = row.CandidateChunkLengthSeconds,
+                    FinalSampleLengthSeconds = row.FinalSampleLengthSeconds
+                })
+            ]
+        };
     }
 
     private void OnSettingsClick(object? sender, EventArgs e)

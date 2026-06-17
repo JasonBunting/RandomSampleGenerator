@@ -14,6 +14,10 @@ public sealed class ValidationService
         {
             errors.Add("Configured source folder does not exist.");
         }
+        else if (!CanReadFolder(config.SourceFolderPath))
+        {
+            errors.Add("Configured source folder is inaccessible.");
+        }
 
         if (!Directory.Exists(config.TargetFolderPath))
         {
@@ -74,6 +78,24 @@ public sealed class ValidationService
         {
             File.WriteAllText(probePath, "probe");
             File.Delete(probePath);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool CanReadFolder(string folderPath)
+    {
+        if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            _ = Directory.EnumerateFileSystemEntries(folderPath).Take(1).ToList();
             return true;
         }
         catch
