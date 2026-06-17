@@ -241,7 +241,11 @@ public partial class MainForm : Form
             ]
         };
 
-        var orchestrator = new RunOrchestrator(new RunFolderService(), _validationService);
+        var orchestrator = new RunOrchestrator(
+            new RunFolderService(),
+            _validationService,
+            new CandidateChunkService(),
+            new StemSeparationService());
         _runCancellationTokenSource = new CancellationTokenSource();
 
         try

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using RandomSampleGenerator.Core.Models;
 using RandomSampleGenerator.Core.Services;
 
@@ -57,7 +58,11 @@ public sealed class RunOrchestratorTests
             };
 
             var progress = new List<RowProgressUpdate>();
-            var sut = new RunOrchestrator(new RunFolderService(), new ValidationService());
+            var sut = new RunOrchestrator(
+                new RunFolderService(),
+                new ValidationService(),
+                new CandidateChunkService(),
+                new StemSeparationService(new FakeProcessRunner(simulateSuccess: true)));
 
             var result = sut.Run(runConfiguration, [songA], progressCallback: progress.Add);
 
@@ -125,12 +130,16 @@ public sealed class RunOrchestratorTests
                 ]
             };
 
-            var sut = new RunOrchestrator(new RunFolderService(), new ValidationService());
+            var sut = new RunOrchestrator(
+                new RunFolderService(),
+                new ValidationService(),
+                new CandidateChunkService(),
+                new StemSeparationService(new FakeProcessRunner(simulateSuccess: true)));
             using var cts = new CancellationTokenSource();
 
             var result = sut.Run(runConfiguration, [songA], cts.Token, update =>
             {
-                if (update.StemType == "drums" && !update.FinalStatus.HasValue && update.ProducedCount >= 1)
+                if (update.StemType == "drums" && !update.FinalStatus.HasValue)
                 {
                     cts.Cancel();
                 }
@@ -143,6 +152,78 @@ public sealed class RunOrchestratorTests
         {
             Directory.Delete(sourceRoot, true);
             Directory.Delete(targetRoot, true);
+        }
+    }
+
+    private sealed class FakeProcessRunner(bool simulateSuccess) : IProcessRunner
+    {
+        public Process Start(ProcessStartInfo startInfo)
+        {
+            var outputRoot = GetArgumentValue(startInfo.Arguments, "--out");
+            var model = GetArgumentValue(startInfo.Arguments, "-n");
+            var inputPath = GetLastQuotedPath(startInfo.Arguments);
+
+            if (simulateSuccess)
+            {
+                var inputName = Path.GetFileNameWithoutExtension(inputPath);
+                var outputDir = Path.Combine(outputRoot, model, inputName);
+                Directory.CreateDirectory(outputDir);
+                File.WriteAllBytes(Path.Combine(outputDir, "drums.wav"), [0]);
+                File.WriteAllBytes(Path.Combine(outputDir, "vocals.wav"), [0]);
+                File.WriteAllBytes(Path.Combine(outputDir, "bass.wav"), [0]);
+                File.WriteAllBytes(Path.Combine(outputDir, "other.wav"), [0]);
+                File.WriteAllBytes(Path.Combine(outputDir, "piano.wav"), [0]);
+                File.WriteAllBytes(Path.Combine(outputDir, "guitar.wav"), [0]);
+            }
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd",
+                Arguments = "/c exit 0",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            var process = Process.Start(psi);
+            if (process is null)
+            {
+                throw new InvalidOperationException("Unable to start fake process.");
+            }
+
+            return process;
+        }
+
+        private static string GetArgumentValue(string arguments, string name)
+        {
+            var marker = $"{name} \"";
+            var start = arguments.IndexOf(marker, StringComparison.Ordinal);
+            if (start < 0)
+            {
+                return string.Empty;
+            }
+
+            start += marker.Length;
+            var end = arguments.IndexOf('"', start);
+            return end > start ? arguments[start..end] : string.Empty;
+        }
+
+        private static string GetLastQuotedPath(string arguments)
+        {
+            var start = arguments.LastIndexOf('"');
+            if (start <= 0)
+            {
+                return string.Empty;
+            }
+
+            var previous = arguments.LastIndexOf('"', start - 1);
+            if (previous < 0)
+            {
+                return string.Empty;
+            }
+
+            return arguments[(previous + 1)..start];
         }
     }
 }

@@ -1,0 +1,69 @@
+using System.Diagnostics;
+using RandomSampleGenerator.Core.Services;
+
+namespace RandomSampleGenerator.Core.Tests.Services;
+
+public sealed class StemSeparationServiceTests
+{
+	 [Fact]
+	 public void Separate_UnsupportedModel_Throws()
+	 {
+		  var sut = new StemSeparationService(new NoopProcessRunner());
+
+		  Assert.Throws<InvalidOperationException>(() =>
+				sut.Separate("not-a-model", "drums", "in.wav", Path.GetTempPath(), CancellationToken.None));
+	 }
+
+	 [Fact]
+	 public void Separate_WhenStemOutputMissing_ReturnsFailure()
+	 {
+		  var root = Path.Combine(Path.GetTempPath(), $"rsg-demucs-{Guid.NewGuid():N}");
+		  Directory.CreateDirectory(root);
+		  var input = Path.Combine(root, "candidate.wav");
+		  File.WriteAllBytes(input, [0]);
+
+		  try
+		  {
+				var sut = new StemSeparationService(new ExitSuccessProcessRunner());
+
+				var result = sut.Separate("htdemucs", "drums", input, root, CancellationToken.None);
+
+				Assert.False(result.IsSuccess);
+				Assert.False(result.IsCancelled);
+				Assert.Contains("expected requested stem output", result.FailureReason ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+		  }
+		  finally
+		  {
+				Directory.Delete(root, true);
+		  }
+	 }
+
+	 private sealed class NoopProcessRunner : IProcessRunner
+	 {
+		  public Process Start(ProcessStartInfo startInfo) => throw new NotSupportedException();
+	 }
+
+	 private sealed class ExitSuccessProcessRunner : IProcessRunner
+	 {
+		  public Process Start(ProcessStartInfo startInfo)
+		  {
+				var psi = new ProcessStartInfo
+				{
+					 FileName = "cmd",
+					 Arguments = "/c exit 0",
+					 UseShellExecute = false,
+					 RedirectStandardOutput = true,
+					 RedirectStandardError = true,
+					 CreateNoWindow = true
+				};
+
+				var process = Process.Start(psi);
+				if (process is null)
+				{
+					 throw new InvalidOperationException("Unable to start process.");
+				}
+
+				return process;
+		  }
+	 }
+}

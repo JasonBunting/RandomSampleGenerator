@@ -6,13 +6,19 @@ public sealed class RunOrchestrator
 {
 	 private readonly RunFolderService _runFolderService;
 	 private readonly ValidationService _validationService;
+	 private readonly CandidateChunkService _candidateChunkService;
+	 private readonly StemSeparationService _stemSeparationService;
 
 	 public RunOrchestrator(
 		  RunFolderService runFolderService,
-		  ValidationService validationService)
+		  ValidationService validationService,
+		  CandidateChunkService candidateChunkService,
+		  StemSeparationService stemSeparationService)
 	 {
 		  _runFolderService = runFolderService;
 		  _validationService = validationService;
+		  _candidateChunkService = candidateChunkService;
+		  _stemSeparationService = stemSeparationService;
 	 }
 
 	 public RunResult Run(
@@ -40,6 +46,7 @@ public sealed class RunOrchestrator
 		  };
 
 		  var randomizationService = new RandomizationService(runContext.SongSelectionSeed, runContext.ProcessingSeed);
+		  var runTempRoot = _candidateChunkService.EnsureRunTempRoot(runContext.RunFolderPath);
 		  var replayMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 		  var replayData = new ReplaySupportData();
 		  var rowResults = new List<RowResult>();
@@ -106,7 +113,29 @@ public sealed class RunOrchestrator
 					 var sourceId = GetReplaySongId(song, replayMap, replayData.SourceFileMap);
 					 replayData.OrderedChosenSongIds.Add(sourceId);
 
-					 if (randomizationService.ShouldProducePlaceholderAttempt())
+					 var candidateChunkPath = _candidateChunkService.PrepareCandidateChunkWav(
+						  runTempRoot,
+						  song,
+						  row.StemType,
+						  attempts,
+						  row.CandidateChunkLengthSeconds,
+						  runConfiguration.AppConfiguration.ExportSampleRate,
+						  runConfiguration.AppConfiguration.ExportBitDepth);
+
+					 var attemptOutputRoot = _candidateChunkService.GetAttemptOutputRoot(runTempRoot, row.StemType, attempts);
+					 var separationResult = _stemSeparationService.Separate(
+						  row.Model,
+						  row.StemType,
+						  candidateChunkPath,
+						  attemptOutputRoot,
+						  cancellationToken);
+
+					 if (separationResult.IsCancelled)
+					 {
+						  break;
+					 }
+
+					 if (separationResult.IsSuccess)
 					 {
 						  produced++;
 						  progressCallback?.Invoke(new RowProgressUpdate(row.StemType, row.Quantity, produced, null));
