@@ -2,7 +2,7 @@ namespace RandomSampleGenerator.Core.Services;
 
 public sealed class SourcePoolScanner
 {
-    private static readonly HashSet<string> SupportedExtensions = [".wav", ".mp3", ".flac", ".m4a", ".aac", ".ogg", ".aiff", ".wma"];
+    private static readonly HashSet<string> SupportedExtensions = [".wav", ".mp3"];
 
     public IReadOnlyList<string> Scan(string sourceRootPath)
     {

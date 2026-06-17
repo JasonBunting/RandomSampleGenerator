@@ -13,6 +13,9 @@ public sealed class RandomizationService
 
     public int PickSongIndex(int songCount) => _songRandom.Next(songCount);
 
+    // Phase 5 placeholder hook for deterministic orchestration-only attempt outcomes.
+    public bool ShouldProducePlaceholderAttempt() => _processingRandom.NextDouble() >= 0.35;
+
     public double PickChunkStartSeconds(double maxStartSeconds) => maxStartSeconds <= 0
         ? 0
         : _processingRandom.NextDouble() * maxStartSeconds;

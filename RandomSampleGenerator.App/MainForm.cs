@@ -1,18 +1,22 @@
 using RandomSampleGenerator.Core.Constants;
 using RandomSampleGenerator.Core.Models;
 using RandomSampleGenerator.Core.Services;
-using System.Diagnostics;
 
 namespace RandomSampleGenerator.App;
 
 public partial class MainForm : Form
 {
     private readonly ConfigurationService _configService;
+    private readonly SourcePoolScanner _sourcePoolScanner = new();
     private readonly ValidationService _validationService = new();
     private AppConfiguration _config;
+    private bool _isRunInProgress;
+    private IReadOnlyList<string> _currentSourcePool = [];
+    private CancellationTokenSource? _runCancellationTokenSource;
 
     private readonly StemRowControl[] _stemRows;
     private Button _runButton = null!;
+    private Button _cancelButton = null!;
     private Button _settingsButton = null!;
 
     public MainForm(ConfigurationService configService, AppConfiguration config)
@@ -42,6 +46,7 @@ public partial class MainForm : Form
         headerPanel.Controls.Add(new Label { Text = "Chunk (s)", Left = 295, Top = 4, Width = 70, Font = new Font(Font, FontStyle.Bold) });
         headerPanel.Controls.Add(new Label { Text = "Sample (s)", Left = 380, Top = 4, Width = 75, Font = new Font(Font, FontStyle.Bold) });
         headerPanel.Controls.Add(new Label { Text = "Status", Left = 470, Top = 4, Width = 60, Font = new Font(Font, FontStyle.Bold) });
+        headerPanel.Controls.Add(new Label { Text = "Progress", Left = 560, Top = 4, Width = 70, Font = new Font(Font, FontStyle.Bold) });
         Controls.Add(headerPanel);
 
         // Stem rows
@@ -80,6 +85,18 @@ public partial class MainForm : Form
         _settingsButton.Click += OnSettingsClick;
         Controls.Add(_settingsButton);
 
+        _cancelButton = new Button
+        {
+            Text = "Cancel",
+            Left = 230,
+            Top = buttonTop,
+            Width = 100,
+            Height = 32,
+            Enabled = false
+        };
+        _cancelButton.Click += OnCancelClick;
+        Controls.Add(_cancelButton);
+
         ClientSize = new Size(780, buttonTop + 50);
     }
 
@@ -91,6 +108,11 @@ public partial class MainForm : Form
             {
                 row.SelectedModel = model;
             }
+
+            row.SetProgress(0, row.Quantity);
+            row.SetVisualState(row.Quantity == 0
+                ? StemRowControl.RowVisualState.Skipped
+                : StemRowControl.RowVisualState.Idle);
         }
 
         UpdateRunButtonState();
@@ -103,56 +125,107 @@ public partial class MainForm : Form
 
     private void UpdateRunButtonState()
     {
-        _runButton.Enabled = _stemRows.Any(r => r.Quantity > 0);
+        _runButton.Enabled = !_isRunInProgress && _stemRows.Any(r => r.Quantity > 0);
     }
 
     private void OnRunClick(object? sender, EventArgs e)
     {
         SaveConfigFromUI();
 
-        var runConfiguration = BuildRunConfiguration();
-        var errors = _validationService.ValidateBeforeRun(runConfiguration);
-        if (errors.Count > 0)
+        if (!Directory.Exists(_config.SourceFolderPath))
         {
-            MessageBox.Show(string.Join(Environment.NewLine, errors),
+            MessageBox.Show("Configured source folder does not exist.",
                 "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
         }
 
         try
         {
-            var orchestrator = new RunOrchestrator(
-                new SourcePoolScanner(),
-                new RunFolderService(),
-                _validationService,
-                new ManifestBuilder(),
-                new SampleExportService(),
-                new ExportFileNameBuilder());
-
-            var result = orchestrator.Run(runConfiguration);
-
-            if (_config.AutoOpenOutputFolder && Directory.Exists(result.RunFolderPath))
-            {
-                Process.Start(new ProcessStartInfo
-                {
-                    FileName = result.RunFolderPath,
-                    UseShellExecute = true
-                });
-            }
-
-            MessageBox.Show($"Run {result.Status}.\nOutput: {result.RunFolderPath}",
-                "Run Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            _currentSourcePool = _sourcePoolScanner.Scan(_config.SourceFolderPath);
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Run failed: {ex.Message}",
-                "Run Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show($"Configured source folder is inaccessible: {ex.Message}",
+                "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
         }
+
+        if (_currentSourcePool.Count == 0)
+        {
+            MessageBox.Show("No supported source files found (.wav, .mp3).",
+                "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        EnterRunMode();
+        _ = ExecuteRunAsync();
     }
 
-    private RunConfiguration BuildRunConfiguration()
+    private void EnterRunMode()
     {
-        return new RunConfiguration
+        _isRunInProgress = true;
+
+        var activeAssigned = false;
+        foreach (var row in _stemRows)
+        {
+            row.SetProgress(0, row.Quantity);
+            if (row.Quantity == 0)
+            {
+                row.SetVisualState(StemRowControl.RowVisualState.Skipped);
+                continue;
+            }
+
+            if (!activeAssigned)
+            {
+                row.SetVisualState(StemRowControl.RowVisualState.Active);
+                activeAssigned = true;
+            }
+            else
+            {
+                row.SetVisualState(StemRowControl.RowVisualState.Idle);
+            }
+        }
+
+        SetRunInputLockState(isRunning: true);
+    }
+
+    private void SetRunInputLockState(bool isRunning)
+    {
+        foreach (var row in _stemRows)
+        {
+            row.SetEnabled(!isRunning);
+        }
+
+        _settingsButton.Enabled = !isRunning;
+        _cancelButton.Enabled = isRunning;
+        UpdateRunButtonState();
+    }
+
+    private void OnCancelClick(object? sender, EventArgs e)
+    {
+        if (!_isRunInProgress)
+        {
+            return;
+        }
+
+        var confirm = MessageBox.Show("Cancel the current run?", "Confirm Cancel",
+            MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+        if (confirm != DialogResult.Yes)
+        {
+            return;
+        }
+
+        _runCancellationTokenSource?.Cancel();
+    }
+
+    private async Task ExecuteRunAsync()
+    {
+        foreach (var row in _stemRows)
+        {
+            row.SetProgress(0, row.Quantity);
+        }
+
+        var runConfiguration = new RunConfiguration
         {
             AppConfiguration = _config,
             StemRows =
@@ -167,7 +240,85 @@ public partial class MainForm : Form
                 })
             ]
         };
+
+        var orchestrator = new RunOrchestrator(new RunFolderService(), _validationService);
+        _runCancellationTokenSource = new CancellationTokenSource();
+
+        try
+        {
+            var result = await Task.Run(() => orchestrator.Run(
+                runConfiguration,
+                _currentSourcePool,
+                _runCancellationTokenSource.Token,
+                update => BeginInvoke(() => ApplyRowProgressUpdate(update))));
+
+            ApplyFinalRowStates(result.RowResults);
+            MessageBox.Show($"Run {result.Status}.", "Run Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Run failed: {ex.Message}", "Run Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally
+        {
+            _runCancellationTokenSource?.Dispose();
+            _runCancellationTokenSource = null;
+            _isRunInProgress = false;
+            SetRunInputLockState(isRunning: false);
+        }
     }
+
+    private void ApplyRowProgressUpdate(RowProgressUpdate update)
+    {
+        var row = _stemRows.FirstOrDefault(candidate => candidate.StemType.Equals(update.StemType, StringComparison.OrdinalIgnoreCase));
+        if (row is null)
+        {
+            return;
+        }
+
+        row.SetProgress(update.ProducedCount, update.RequestedCount);
+
+        if (update.FinalStatus.HasValue)
+        {
+            row.SetVisualState(ToVisualState(update.FinalStatus.Value));
+            return;
+        }
+
+        foreach (var candidate in _stemRows.Where(item => item.Quantity > 0 && item != row && item.CurrentState == StemRowControl.RowVisualState.Active))
+        {
+            candidate.SetVisualState(StemRowControl.RowVisualState.Idle);
+        }
+
+        if (row.Quantity > 0)
+        {
+            row.SetVisualState(StemRowControl.RowVisualState.Active);
+        }
+    }
+
+    private void ApplyFinalRowStates(IReadOnlyList<RowResult> rowResults)
+    {
+        foreach (var result in rowResults)
+        {
+            var row = _stemRows.FirstOrDefault(candidate => candidate.StemType.Equals(result.StemType, StringComparison.OrdinalIgnoreCase));
+            if (row is null)
+            {
+                continue;
+            }
+
+            row.SetProgress(result.ProducedCount, result.RequestedCount);
+            row.SetVisualState(ToVisualState(result.Status));
+        }
+    }
+
+    private static StemRowControl.RowVisualState ToVisualState(RowStatus status) => status switch
+    {
+        RowStatus.Skipped => StemRowControl.RowVisualState.Skipped,
+        RowStatus.Completed => StemRowControl.RowVisualState.Completed,
+        RowStatus.Partial => StemRowControl.RowVisualState.Partial,
+        RowStatus.Failed => StemRowControl.RowVisualState.Failed,
+        RowStatus.Cancelled => StemRowControl.RowVisualState.Cancelled,
+        _ => StemRowControl.RowVisualState.Idle
+    };
 
     private void OnSettingsClick(object? sender, EventArgs e)
     {
