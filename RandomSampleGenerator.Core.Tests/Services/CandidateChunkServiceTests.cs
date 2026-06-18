@@ -4,167 +4,252 @@ namespace RandomSampleGenerator.Core.Tests.Services;
 
 public sealed class CandidateChunkServiceTests
 {
-	 [Fact]
-	 public void PrepareCandidateChunkWav_WhenSourceTooShort_ReturnsFailure()
-	 {
-		  var root = Path.Combine(Path.GetTempPath(), $"rsg-chunk-{Guid.NewGuid():N}");
-		  Directory.CreateDirectory(root);
-		  var source = Path.Combine(root, "short.wav");
-		  CreateSineWave(source, durationSeconds: 2);
+    [Fact]
+    public void PrepareCandidateChunkWav_WhenSourceTooShort_ReturnsFailure()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"rsg-chunk-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var source = Path.Combine(root, "short.wav");
+        CreateSineWave(source, durationSeconds: 2);
 
-		  try
-		  {
-				var sut = new CandidateChunkService();
-				var runTemp = sut.EnsureRunTempRoot(root);
+        try
+        {
+            var sut = new CandidateChunkService();
+            var runTemp = sut.EnsureRunTempRoot(root);
 
-				var result = sut.PrepareCandidateChunkWav(
-					 runTemp,
-					 source,
-					 "drums",
-					 1,
-					 candidateChunkStartSeconds: 0,
-							candidateChunkLengthSeconds: 10);
+            var result = sut.PrepareCandidateChunkWav(
+                runTemp,
+                source,
+                "drums",
+                1,
+                candidateChunkStartSeconds: 0,
+                candidateChunkLengthSeconds: 10);
 
-				Assert.False(result.IsSuccess);
-				Assert.Contains("shorter than candidate chunk length", result.FailureReason ?? string.Empty, StringComparison.OrdinalIgnoreCase);
-		  }
-		  finally
-		  {
-				Directory.Delete(root, true);
-		  }
-	 }
+            Assert.False(result.IsSuccess);
+            Assert.Contains("shorter than candidate chunk length", result.FailureReason ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
 
-	 [Fact]
-	 public void PrepareCandidateChunkWav_ExtractsPcmWavChunk()
-	 {
-		  var root = Path.Combine(Path.GetTempPath(), $"rsg-chunk-{Guid.NewGuid():N}");
-		  Directory.CreateDirectory(root);
-		  var source = Path.Combine(root, "long.wav");
-		  CreateSineWave(source, durationSeconds: 12);
+    [Fact]
+    public void PrepareCandidateChunkWav_ExtractsPcmWavChunk()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"rsg-chunk-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var source = Path.Combine(root, "long.wav");
+        CreateSineWave(source, durationSeconds: 12);
 
-		  try
-		  {
-				var sut = new CandidateChunkService();
-				var runTemp = sut.EnsureRunTempRoot(root);
+        try
+        {
+            var sut = new CandidateChunkService();
+            var runTemp = sut.EnsureRunTempRoot(root);
 
-				var result = sut.PrepareCandidateChunkWav(
-					 runTemp,
-					 source,
-					 "drums",
-					 1,
-					 candidateChunkStartSeconds: 1.5,
-							candidateChunkLengthSeconds: 5);
+            var result = sut.PrepareCandidateChunkWav(
+                runTemp,
+                source,
+                "drums",
+                1,
+                candidateChunkStartSeconds: 1.5,
+                candidateChunkLengthSeconds: 5);
 
-				Assert.True(result.IsSuccess);
-				Assert.NotNull(result.CandidateChunkPath);
-				Assert.True(File.Exists(result.CandidateChunkPath));
+            Assert.True(result.IsSuccess);
+            Assert.NotNull(result.CandidateChunkPath);
+            Assert.True(File.Exists(result.CandidateChunkPath));
 
-				using var reader = new BinaryReader(File.OpenRead(result.CandidateChunkPath));
-				var riff = new string(reader.ReadChars(4));
-				reader.BaseStream.Position = 20;
-				var audioFormat = reader.ReadInt16();
+            using var reader = new BinaryReader(File.OpenRead(result.CandidateChunkPath));
+            var riff = new string(reader.ReadChars(4));
+            reader.BaseStream.Position = 20;
+            var audioFormat = reader.ReadInt16();
 
-				Assert.Equal("RIFF", riff);
-				Assert.Equal(1, audioFormat);
+            Assert.Equal("RIFF", riff);
+            Assert.Equal(1, audioFormat);
 
-				 var dataSize = ReadDataChunkSize(result.CandidateChunkPath);
-					 Assert.Equal(44100 * 5 * 2, dataSize);
-		  }
-		  finally
-		  {
-				Directory.Delete(root, true);
-		  }
-	 }
+            var dataSize = ReadDataChunkSize(result.CandidateChunkPath);
+            Assert.Equal(44100 * 5 * 2, dataSize);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
 
-	 [Fact]
-	 public void PrepareCandidateChunkWav_PreservesSourceRateAndChannels()
-	 {
-		  var root = Path.Combine(Path.GetTempPath(), $"rsg-chunk-{Guid.NewGuid():N}");
-		  Directory.CreateDirectory(root);
-		  var source = Path.Combine(root, "stereo-48k.wav");
-		  CreateSineWave(source, durationSeconds: 12, sampleRate: 48000, channels: 2);
+    [Fact]
+    public void PrepareCandidateChunkWav_PreservesSourceRateAndChannels()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"rsg-chunk-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var source = Path.Combine(root, "stereo-48k.wav");
+        CreateSineWave(source, durationSeconds: 12, sampleRate: 48000, channels: 2);
 
-		  try
-		  {
-				var sut = new CandidateChunkService();
-				var runTemp = sut.EnsureRunTempRoot(root);
+        try
+        {
+            var sut = new CandidateChunkService();
+            var runTemp = sut.EnsureRunTempRoot(root);
 
-				var result = sut.PrepareCandidateChunkWav(
-					 runTemp,
-					 source,
-					 "drums",
-					 1,
-					 candidateChunkStartSeconds: 1,
-					 candidateChunkLengthSeconds: 3);
+            var result = sut.PrepareCandidateChunkWav(
+                runTemp,
+                source,
+                "drums",
+                1,
+                candidateChunkStartSeconds: 1,
+                candidateChunkLengthSeconds: 3);
 
-				Assert.True(result.IsSuccess);
-				Assert.NotNull(result.CandidateChunkPath);
+            Assert.True(result.IsSuccess);
+            Assert.NotNull(result.CandidateChunkPath);
 
-				using var reader = new BinaryReader(File.OpenRead(result.CandidateChunkPath!));
-				reader.BaseStream.Position = 22;
-				var channels = reader.ReadInt16();
-				var sampleRate = reader.ReadInt32();
+            using var reader = new BinaryReader(File.OpenRead(result.CandidateChunkPath!));
+            reader.BaseStream.Position = 22;
+            var channels = reader.ReadInt16();
+            var sampleRate = reader.ReadInt32();
 
-				Assert.Equal(2, channels);
-				Assert.Equal(48000, sampleRate);
-		  }
-		  finally
-		  {
-				Directory.Delete(root, true);
-		  }
-	 }
+            Assert.Equal(2, channels);
+            Assert.Equal(48000, sampleRate);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
 
-	  private static void CreateSineWave(string outputPath, int durationSeconds, int sampleRate = 44100, short channels = 1)
-	 {
-		  const short bitsPerSample = 16;
-		  var sampleCount = sampleRate * durationSeconds;
-		  var bytesPerSample = bitsPerSample / 8;
-		  var dataSize = sampleCount * channels * bytesPerSample;
+    [Fact]
+    public void PrepareCandidateChunkWav_UsesDecodedPcmDataMatchingSourceSegment()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"rsg-chunk-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var source = Path.Combine(root, "source.wav");
+        CreateSineWave(source, durationSeconds: 8, sampleRate: 44100, channels: 1);
 
-		  using var stream = File.Create(outputPath);
-		  using var writer = new BinaryWriter(stream);
+        try
+        {
+            var sut = new CandidateChunkService();
+            var runTemp = sut.EnsureRunTempRoot(root);
 
-		  writer.Write("RIFF"u8.ToArray());
-		  writer.Write(36 + dataSize);
-		  writer.Write("WAVE"u8.ToArray());
-		  writer.Write("fmt "u8.ToArray());
-		  writer.Write(16);
-		  writer.Write((short)1);
-		  writer.Write(channels);
-		  writer.Write(sampleRate);
-		  writer.Write(sampleRate * channels * bytesPerSample);
-		  writer.Write((short)(channels * bytesPerSample));
-		  writer.Write(bitsPerSample);
-		  writer.Write("data"u8.ToArray());
-		  writer.Write(dataSize);
+            var result = sut.PrepareCandidateChunkWav(
+                runTemp,
+                source,
+                "drums",
+                1,
+                candidateChunkStartSeconds: 1,
+                candidateChunkLengthSeconds: 2);
 
-		  var frequency = 440.0;
-		  var amplitude = short.MaxValue * 0.2;
-		  for (var i = 0; i < sampleCount; i++)
-		  {
-				var sample = (short)(Math.Sin((2 * Math.PI * frequency * i) / sampleRate) * amplitude);
-				writer.Write(sample);
-		  }
-	 }
+            Assert.True(result.IsSuccess);
+            Assert.NotNull(result.CandidateChunkPath);
 
-	 private static int ReadDataChunkSize(string wavPath)
-	 {
-		  using var reader = new BinaryReader(File.OpenRead(wavPath));
-		  reader.BaseStream.Position = 12;
+            var sourceSamples = ReadPcm16Samples(source);
+            var chunkSamples = ReadPcm16Samples(result.CandidateChunkPath!);
 
-		  while (reader.BaseStream.Position + 8 <= reader.BaseStream.Length)
-		  {
-				var chunkId = new string(reader.ReadChars(4));
-				var chunkSize = reader.ReadInt32();
+            Assert.Equal(44100 * 2, chunkSamples.Length);
 
-				if (chunkId == "data")
-				{
-					 return chunkSize;
-				}
+            var expectedStart = 44100;
+            var compareCount = Math.Min(chunkSamples.Length, sourceSamples.Length - expectedStart);
 
-				reader.BaseStream.Position += chunkSize;
-		  }
+            double totalAbsDiff = 0;
+            for (var i = 0; i < compareCount; i++)
+            {
+                totalAbsDiff += Math.Abs(chunkSamples[i] - sourceSamples[expectedStart + i]);
+            }
 
-		  throw new InvalidDataException("WAV data chunk not found.");
-	 }
+            var meanAbsDiff = totalAbsDiff / compareCount;
+            Assert.True(meanAbsDiff <= 1.0, $"Mean absolute sample difference too high: {meanAbsDiff:F4}");
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+        }
+    }
+
+    private static void CreateSineWave(string outputPath, int durationSeconds, int sampleRate = 44100, short channels = 1)
+    {
+        const short bitsPerSample = 16;
+        var sampleCount = sampleRate * durationSeconds;
+        var bytesPerSample = bitsPerSample / 8;
+        var dataSize = sampleCount * channels * bytesPerSample;
+
+        using var stream = File.Create(outputPath);
+        using var writer = new BinaryWriter(stream);
+
+        writer.Write("RIFF"u8.ToArray());
+        writer.Write(36 + dataSize);
+        writer.Write("WAVE"u8.ToArray());
+        writer.Write("fmt "u8.ToArray());
+        writer.Write(16);
+        writer.Write((short)1);
+        writer.Write(channels);
+        writer.Write(sampleRate);
+        writer.Write(sampleRate * channels * bytesPerSample);
+        writer.Write((short)(channels * bytesPerSample));
+        writer.Write(bitsPerSample);
+        writer.Write("data"u8.ToArray());
+        writer.Write(dataSize);
+
+        var frequency = 440.0;
+        var amplitude = short.MaxValue * 0.2;
+        for (var i = 0; i < sampleCount; i++)
+        {
+            var sample = (short)(Math.Sin((2 * Math.PI * frequency * i) / sampleRate) * amplitude);
+            writer.Write(sample);
+        }
+    }
+
+    private static int ReadDataChunkSize(string wavPath)
+    {
+        using var reader = new BinaryReader(File.OpenRead(wavPath));
+        reader.BaseStream.Position = 12;
+
+        while (reader.BaseStream.Position + 8 <= reader.BaseStream.Length)
+        {
+            var chunkId = new string(reader.ReadChars(4));
+            var chunkSize = reader.ReadInt32();
+
+            if (chunkId == "data")
+            {
+                return chunkSize;
+            }
+
+            reader.BaseStream.Position += chunkSize;
+        }
+
+        throw new InvalidDataException("WAV data chunk not found.");
+    }
+
+    private static short[] ReadPcm16Samples(string wavPath)
+    {
+        using var reader = new BinaryReader(File.OpenRead(wavPath));
+        reader.BaseStream.Position = 12;
+
+        int? dataSize = null;
+        long dataStart = 0;
+        while (reader.BaseStream.Position + 8 <= reader.BaseStream.Length)
+        {
+            var chunkId = new string(reader.ReadChars(4));
+            var chunkSize = reader.ReadInt32();
+
+            if (chunkId == "data")
+            {
+                dataSize = chunkSize;
+                dataStart = reader.BaseStream.Position;
+                break;
+            }
+
+            reader.BaseStream.Position += chunkSize;
+        }
+
+        if (!dataSize.HasValue)
+        {
+            throw new InvalidDataException("WAV data chunk not found.");
+        }
+
+        reader.BaseStream.Position = dataStart;
+        var sampleCount = dataSize.Value / sizeof(short);
+        var samples = new short[sampleCount];
+        for (var i = 0; i < sampleCount; i++)
+        {
+            samples[i] = reader.ReadInt16();
+        }
+
+        return samples;
+    }
 }

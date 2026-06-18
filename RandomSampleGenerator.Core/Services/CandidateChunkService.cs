@@ -1,4 +1,5 @@
 using NAudio.Wave;
+using NAudio.Wave.SampleProviders;
 
 namespace RandomSampleGenerator.Core.Services;
 
@@ -78,6 +79,7 @@ public sealed class CandidateChunkService
 		  }
 
 		  var targetWaveFormat = new WaveFormat(reader.WaveFormat.SampleRate, 16, reader.WaveFormat.Channels);
+		  var pcmProvider = reader.ToWaveProvider16();
 
 		  var startOffset = TimeSpan.FromSeconds(candidateChunkStartSeconds);
 		  var maxStart = TimeSpan.FromSeconds(Math.Max(0, sourceDurationSeconds - candidateChunkLengthSeconds));
@@ -99,7 +101,7 @@ public sealed class CandidateChunkService
 		  while (totalBytesWritten < bytesRequired)
 		  {
 				 var bytesToRead = Math.Min(buffer.Length, bytesRequired - totalBytesWritten);
-				 var bytesRead = reader.Read(buffer, 0, bytesToRead);
+				 var bytesRead = pcmProvider.Read(buffer, 0, bytesToRead);
 				 if (bytesRead <= 0)
 				 {
 					  break;
