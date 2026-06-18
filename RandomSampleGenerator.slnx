@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/Solution Items/">
+    <File Path="Live_Demucs_Output_Window_Spec.md" />
     <File Path="sample_harvester_v_1_tech_spec.md" />
   </Folder>
   <Project Path="RandomSampleGenerator.App/RandomSampleGenerator.App.csproj" />

@@ -8,12 +8,14 @@ public sealed class StemSeparationService
 	private static readonly HashSet<string> SupportedModels = ["htdemucs", "htdemucs_6s"];
 	private const int MaxRetries = 2;
 	private readonly IProcessRunner _processRunner;
+	private readonly IProcessOutputSink? _outputSink;
 	private readonly Lock _processLock = new();
 	private Process? _activeProcess;
 
-	public StemSeparationService(IProcessRunner? processRunner = null)
+	public StemSeparationService(IProcessRunner? processRunner = null, IProcessOutputSink? outputSink = null)
 	{
 		_processRunner = processRunner ?? new DefaultProcessRunner();
+		_outputSink = outputSink;
 	}
 
 	public StemSeparationResult Separate(
@@ -37,6 +39,11 @@ public sealed class StemSeparationService
 		var attemptFailures = new List<string>();
 		for (var attempt = 0; attempt <= MaxRetries; attempt++)
 		{
+			if (attempt > 0)
+			{
+				_outputSink?.AppendSystem($"Demucs attempt failed; retry {attempt} of {MaxRetries} starting.");
+			}
+
 			var retryOutputRoot = Path.Combine(outputRootPath, $"retry-{attempt:00}");
 			var result = SeparateOnce(model, requestedStemType, candidateChunkPath, retryOutputRoot, cancellationToken);
 			if (result.IsSuccess || result.IsCancelled)
@@ -83,20 +90,74 @@ public sealed class StemSeparationService
 			_activeProcess = process;
 		}
 
+		_outputSink?.AppendSystem("Starting Demucs attempt.");
+		_outputSink?.AppendSystem($"Model: {model}");
+		_outputSink?.AppendSystem($"Stem: {requestedStemType}");
+		_outputSink?.AppendSystem($"Source chunk: {candidateChunkPath}");
+		_outputSink?.AppendSystem($"Output root: {outputRootPath}");
+
+		var stdoutLines = new List<string>();
+		var stderrLines = new List<string>();
+		process.OutputDataReceived += (_, e) =>
+		{
+			if (e.Data is null)
+			{
+				return;
+			}
+
+			lock (stdoutLines)
+			{
+				stdoutLines.Add(e.Data);
+			}
+
+			_outputSink?.AppendStdOut(e.Data);
+		};
+
+		process.ErrorDataReceived += (_, e) =>
+		{
+			if (e.Data is null)
+			{
+				return;
+			}
+
+			lock (stderrLines)
+			{
+				stderrLines.Add(e.Data);
+			}
+
+			_outputSink?.AppendStdErr(e.Data);
+		};
+
 		try
 		{
+			process.BeginOutputReadLine();
+			process.BeginErrorReadLine();
+			process.WaitForExit();
 			process.WaitForExit();
 
-			var stdout = process.StandardOutput.ReadToEnd();
-			var stderr = process.StandardError.ReadToEnd();
+			string stdout;
+			lock (stdoutLines)
+			{
+				stdout = string.Join(Environment.NewLine, stdoutLines);
+			}
+
+			string stderr;
+			lock (stderrLines)
+			{
+				stderr = string.Join(Environment.NewLine, stderrLines);
+			}
+
+			_outputSink?.AppendSystem($"Exit code: {process.ExitCode}");
 
 			if (cancellationToken.IsCancellationRequested)
 			{
+				_outputSink?.AppendSystem("Demucs attempt cancelled.");
 				return StemSeparationResult.Cancelled(model, requestedStemType, candidateChunkPath, outputRootPath);
 			}
 
 			if (process.ExitCode != 0)
 			{
+				_outputSink?.AppendSystem("Demucs attempt failed.");
 				return StemSeparationResult.Failed(model, requestedStemType, candidateChunkPath, outputRootPath,
 					$"Demucs exited with code {process.ExitCode}. {stderr}".Trim());
 			}
@@ -104,14 +165,18 @@ public sealed class StemSeparationService
 			var separatedStemPath = FindSeparatedStemPath(outputRootPath, model, candidateChunkPath, requestedStemType);
 			if (separatedStemPath is null)
 			{
+				_outputSink?.AppendSystem("Demucs completed but requested stem output was missing.");
 				return StemSeparationResult.Failed(model, requestedStemType, candidateChunkPath, outputRootPath,
 					"Demucs completed but expected requested stem output was not found.");
 			}
+
+			_outputSink?.AppendSystem("Demucs attempt succeeded.");
 
 			return StemSeparationResult.Succeeded(model, requestedStemType, candidateChunkPath, outputRootPath, separatedStemPath, stdout, stderr);
 		}
 		catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
 		{
+			_outputSink?.AppendSystem($"Demucs invocation failed: {ex.Message}");
 			return StemSeparationResult.Failed(model, requestedStemType, candidateChunkPath, outputRootPath,
 				$"Failed to invoke Demucs via 'py -3.9 -m demucs'. {ex.Message}");
 		}

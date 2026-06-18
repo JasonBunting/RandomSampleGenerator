@@ -10,6 +10,7 @@ public partial class MainForm : Form
     private readonly ConfigurationService _configService;
     private readonly SourcePoolScanner _sourcePoolScanner = new();
     private readonly ValidationService _validationService = new();
+    private readonly LiveProcessOutputService _liveProcessOutputService = new();
     private AppConfiguration _config;
     private bool _isRunInProgress;
     private IReadOnlyList<string> _currentSourcePool = [];
@@ -226,10 +227,11 @@ public partial class MainForm : Form
             new RunFolderService(),
             _validationService,
             new CandidateChunkService(),
-            new StemSeparationService(),
+            new StemSeparationService(outputSink: _liveProcessOutputService),
             new SampleExportService(),
             new ExportFileNameBuilder(),
-            new ManifestBuilder());
+            new ManifestBuilder(),
+            _liveProcessOutputService);
         _runCancellationTokenSource = new CancellationTokenSource();
 
         try

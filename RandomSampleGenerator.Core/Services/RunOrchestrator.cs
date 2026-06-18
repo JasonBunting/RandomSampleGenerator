@@ -11,6 +11,7 @@ public sealed class RunOrchestrator
 	 private readonly SampleExportService _sampleExportService;
 	 private readonly ExportFileNameBuilder _exportFileNameBuilder;
 	 private readonly ManifestBuilder _manifestBuilder;
+	 private readonly IProcessOutputSink? _processOutputSink;
 
 	 public RunOrchestrator(
 		  RunFolderService runFolderService,
@@ -19,7 +20,8 @@ public sealed class RunOrchestrator
 		  StemSeparationService stemSeparationService,
 		  SampleExportService sampleExportService,
 		  ExportFileNameBuilder exportFileNameBuilder,
-		  ManifestBuilder manifestBuilder)
+		  ManifestBuilder manifestBuilder,
+		  IProcessOutputSink? processOutputSink = null)
 	 {
 		  _runFolderService = runFolderService;
 		  _validationService = validationService;
@@ -28,6 +30,7 @@ public sealed class RunOrchestrator
 		  _sampleExportService = sampleExportService;
 		  _exportFileNameBuilder = exportFileNameBuilder;
 		  _manifestBuilder = manifestBuilder;
+		  _processOutputSink = processOutputSink;
 	 }
 
 	 public RunResult Run(
@@ -84,6 +87,11 @@ public sealed class RunOrchestrator
 		  }
 
 		  var randomizationService = new RandomizationService(runContext.SongSelectionSeed, runContext.ProcessingSeed);
+		  _processOutputSink?.AppendSystem($"=== Run {runContext.RunName} ===");
+		  _processOutputSink?.AppendSystem($"Run folder: {runContext.RunFolderPath}");
+		  _processOutputSink?.AppendSystem($"Source pool count: {sourcePool.Count}");
+		  _processOutputSink?.AppendSystem($"SongSelectionSeed={runContext.SongSelectionSeed}, ProcessingSeed={runContext.ProcessingSeed}");
+
 		  var runTempRoot = _candidateChunkService.EnsureRunTempRoot(runContext.RunFolderPath);
 		  var replayMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 		  var replayData = new ReplaySupportData();
@@ -140,6 +148,7 @@ public sealed class RunOrchestrator
 				}
 
 				SafeLog($"Row '{row.StemType}' started. Requested={row.Quantity}, Model='{row.Model}', CandidateChunkLengthSeconds={row.CandidateChunkLengthSeconds}, FinalSampleLengthSeconds={row.FinalSampleLengthSeconds}");
+				_processOutputSink?.AppendSystem($"Starting row '{row.StemType}'. Requested={row.Quantity}, Model={row.Model}, ChunkLength={row.CandidateChunkLengthSeconds}s, FinalLength={row.FinalSampleLengthSeconds}s.");
 				progressCallback?.Invoke(new RowProgressUpdate(row.StemType, row.Quantity, 0, null));
 
 				var produced = 0;
@@ -176,6 +185,11 @@ public sealed class RunOrchestrator
 					 }
 
 					 var candidateChunkStartSeconds = randomizationService.PickChunkStartSeconds(maxStartSeconds);
+					 _processOutputSink?.AppendSystem("Starting Demucs attempt.");
+					 _processOutputSink?.AppendSystem($"Stem: {row.StemType}");
+					 _processOutputSink?.AppendSystem($"Model: {row.Model}");
+					 _processOutputSink?.AppendSystem($"Source: {song}");
+					 _processOutputSink?.AppendSystem($"Chunk: start {TimeSpan.FromSeconds(candidateChunkStartSeconds):hh\\:mm\\:ss\\.fff}, duration {row.CandidateChunkLengthSeconds}s");
 
 					 var candidateChunkPath = _candidateChunkService.PrepareCandidateChunkWav(
 						  runTempRoot,
@@ -320,6 +334,7 @@ public sealed class RunOrchestrator
 		  };
 
 		  SafeLog($"Run ended with status {runResult.Status}. ExportedSamples={runResult.ExportedSamples.Count}.");
+		  _processOutputSink?.AppendSystem($"Run finished with status {runResult.Status}. Exported samples: {runResult.ExportedSamples.Count}.");
 
 		  try
 		  {
