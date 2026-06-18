@@ -10,7 +10,7 @@ public partial class MainForm : Form
     private readonly ConfigurationService _configService;
     private readonly SourcePoolScanner _sourcePoolScanner = new();
     private readonly ValidationService _validationService = new();
-    private readonly LiveProcessOutputService _liveProcessOutputService = new();
+    private readonly LiveProcessOutputService _liveProcessOutputService;
     private AppConfiguration _config;
     private bool _isRunInProgress;
     private IReadOnlyList<string> _currentSourcePool = [];
@@ -26,6 +26,7 @@ public partial class MainForm : Form
         _configService = configService;
         _config = config;
         _stemRows = new StemRowControl[StemTypes.Ordered.Length];
+        _liveProcessOutputService = new LiveProcessOutputService(this);
 
         InitializeComponent();
         BuildUI();

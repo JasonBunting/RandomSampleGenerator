@@ -64,4 +64,23 @@ public sealed class ProcessOutputWindow : Form
 				Activate();
 		  }
 	 }
+
+	 public void EnsureVisible(IWin32Window? owner = null)
+	 {
+		  if (IsDisposed)
+		  {
+				return;
+		  }
+
+		  if (InvokeRequired)
+		  {
+				BeginInvoke(() => EnsureVisible(owner));
+				return;
+		  }
+
+		  if (!Visible)
+		  {
+				Show(owner);
+		  }
+	 }
 }
