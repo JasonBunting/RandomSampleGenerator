@@ -2,18 +2,18 @@ namespace RandomSampleGenerator.Core.Services;
 
 public sealed class SourcePoolScanner
 {
-    private static readonly HashSet<string> SupportedExtensions = [".wav", ".mp3"];
+	private static readonly HashSet<string> SupportedExtensions = [".wav", ".mp3"];
 
-    public IReadOnlyList<string> Scan(string sourceRootPath)
-    {
-        if (!Directory.Exists(sourceRootPath))
-        {
-            return [];
-        }
+	public IReadOnlyList<string> Scan(string sourceRootPath)
+	{
+		if (!Directory.Exists(sourceRootPath))
+		{
+			return [];
+		}
 
-        return Directory.EnumerateFiles(sourceRootPath, "*.*", SearchOption.AllDirectories)
-            .Where(path => SupportedExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
+		return Directory.EnumerateFiles(sourceRootPath, "*.*", SearchOption.AllDirectories)
+			.Where(path => SupportedExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+			.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+			.ToList();
+	}
 }

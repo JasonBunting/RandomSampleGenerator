@@ -2,25 +2,25 @@ namespace RandomSampleGenerator.Core.Models;
 
 public sealed class AppConfiguration
 {
-    public string SourceFolderPath { get; set; } = string.Empty;
+	public string SourceFolderPath { get; set; } = string.Empty;
 
-    public string TargetFolderPath { get; set; } = string.Empty;
+	public string TargetFolderPath { get; set; } = string.Empty;
 
-    public int ExportSampleRate { get; set; } = 44100;
+	public int ExportSampleRate { get; set; } = 44100;
 
-    public int ExportBitDepth { get; set; } = 16;
+	public int ExportBitDepth { get; set; } = 16;
 
-    public string ExportFormat { get; set; } = "wav";
+	public string ExportFormat { get; set; } = "wav";
 
-    public bool AutoOpenOutputFolder { get; set; }
+	public bool AutoOpenOutputFolder { get; set; }
 
-    public bool LoggingEnabled { get; set; } = true;
+	public bool LoggingEnabled { get; set; } = true;
 
-    public int MaxDistinctStemTypesPerSongPerRun { get; set; } = 3;
+	public int MaxDistinctStemTypesPerSongPerRun { get; set; } = 3;
 
-    public int WarningRequestedSamplesPerDiscoveredSourceMultiplier { get; set; } = 8;
+	public int WarningRequestedSamplesPerDiscoveredSourceMultiplier { get; set; } = 8;
 
-    public int HardRequestedSamplesPerDiscoveredSourceMultiplier { get; set; } = 20;
+	public int HardRequestedSamplesPerDiscoveredSourceMultiplier { get; set; } = 20;
 
-    public Dictionary<string, string> ModelByStemType { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+	public Dictionary<string, string> ModelByStemType { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }

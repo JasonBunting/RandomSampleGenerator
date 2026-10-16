@@ -133,7 +133,6 @@ public sealed class StemSeparationService
 			process.BeginOutputReadLine();
 			process.BeginErrorReadLine();
 			process.WaitForExit();
-			process.WaitForExit();
 
 			string stdout;
 			lock (stdoutLines)
@@ -217,78 +216,78 @@ public sealed class StemSeparationService
 		}
 	}
 
-	 private static string? FindSeparatedStemPath(string outputRootPath, string model, string candidateChunkPath, string requestedStemType)
-	 {
-		  var inputBaseName = Path.GetFileNameWithoutExtension(candidateChunkPath);
-		  var stemPath = Path.Combine(outputRootPath, model, inputBaseName, $"{requestedStemType}.wav");
-		  return File.Exists(stemPath) ? stemPath : null;
-	 }
+	private static string? FindSeparatedStemPath(string outputRootPath, string model, string candidateChunkPath, string requestedStemType)
+	{
+		var inputBaseName = Path.GetFileNameWithoutExtension(candidateChunkPath);
+		var stemPath = Path.Combine(outputRootPath, model, inputBaseName, $"{requestedStemType}.wav");
+		return File.Exists(stemPath) ? stemPath : null;
+	}
 }
 
 public sealed class StemSeparationResult
 {
-	 public required bool IsSuccess { get; init; }
-	 public required bool IsCancelled { get; init; }
-	 public required string Model { get; init; }
-	 public required string RequestedStemType { get; init; }
-	 public required string CandidateChunkPath { get; init; }
-	 public required string OutputRootPath { get; init; }
-	 public string? SeparatedStemPath { get; init; }
-	 public string? FailureReason { get; init; }
-	 public string? StandardOutput { get; init; }
-	 public string? StandardError { get; init; }
+	public required bool IsSuccess { get; init; }
+	public required bool IsCancelled { get; init; }
+	public required string Model { get; init; }
+	public required string RequestedStemType { get; init; }
+	public required string CandidateChunkPath { get; init; }
+	public required string OutputRootPath { get; init; }
+	public string? SeparatedStemPath { get; init; }
+	public string? FailureReason { get; init; }
+	public string? StandardOutput { get; init; }
+	public string? StandardError { get; init; }
 
-	 public static StemSeparationResult Succeeded(
-		  string model,
-		  string requestedStemType,
-		  string candidateChunkPath,
-		  string outputRootPath,
-		  string separatedStemPath,
-		  string? stdout,
-		  string? stderr) =>
-		  new()
-		  {
-				IsSuccess = true,
-				IsCancelled = false,
-				Model = model,
-				RequestedStemType = requestedStemType,
-				CandidateChunkPath = candidateChunkPath,
-				OutputRootPath = outputRootPath,
-				SeparatedStemPath = separatedStemPath,
-				StandardOutput = stdout,
-				StandardError = stderr
-		  };
+	public static StemSeparationResult Succeeded(
+		 string model,
+		 string requestedStemType,
+		 string candidateChunkPath,
+		 string outputRootPath,
+		 string separatedStemPath,
+		 string? stdout,
+		 string? stderr) =>
+		 new()
+		 {
+			 IsSuccess = true,
+			 IsCancelled = false,
+			 Model = model,
+			 RequestedStemType = requestedStemType,
+			 CandidateChunkPath = candidateChunkPath,
+			 OutputRootPath = outputRootPath,
+			 SeparatedStemPath = separatedStemPath,
+			 StandardOutput = stdout,
+			 StandardError = stderr
+		 };
 
-	 public static StemSeparationResult Failed(
-		  string model,
-		  string requestedStemType,
-		  string candidateChunkPath,
-		  string outputRootPath,
-		  string failureReason) =>
-		  new()
-		  {
-				IsSuccess = false,
-				IsCancelled = false,
-				Model = model,
-				RequestedStemType = requestedStemType,
-				CandidateChunkPath = candidateChunkPath,
-				OutputRootPath = outputRootPath,
-				FailureReason = failureReason
-		  };
+	public static StemSeparationResult Failed(
+		 string model,
+		 string requestedStemType,
+		 string candidateChunkPath,
+		 string outputRootPath,
+		 string failureReason) =>
+		 new()
+		 {
+			 IsSuccess = false,
+			 IsCancelled = false,
+			 Model = model,
+			 RequestedStemType = requestedStemType,
+			 CandidateChunkPath = candidateChunkPath,
+			 OutputRootPath = outputRootPath,
+			 FailureReason = failureReason
+		 };
 
-	 public static StemSeparationResult Cancelled(
-		  string model,
-		  string requestedStemType,
-		  string candidateChunkPath,
-		  string outputRootPath) =>
-		  new()
-		  {
-				IsSuccess = false,
-				IsCancelled = true,
-				Model = model,
-				RequestedStemType = requestedStemType,
-				CandidateChunkPath = candidateChunkPath,
-				OutputRootPath = outputRootPath,
-				FailureReason = "Separation cancelled."
-		  };
+	public static StemSeparationResult Cancelled(
+		 string model,
+		 string requestedStemType,
+		 string candidateChunkPath,
+		 string outputRootPath) =>
+		 new()
+		 {
+			 IsSuccess = false,
+			 IsCancelled = true,
+			 Model = model,
+			 RequestedStemType = requestedStemType,
+			 CandidateChunkPath = candidateChunkPath,
+			 OutputRootPath = outputRootPath,
+			 FailureReason = "Separation cancelled."
+		 };
 }
